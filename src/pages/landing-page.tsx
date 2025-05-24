@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, MessageCircle, Shield, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router";
+import { GradientButton } from "@/components/ui/gradient-button";
 
 export function LandingPage() {
     const navigate = useNavigate();
@@ -76,14 +77,13 @@ export function LandingPage() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.5, delay: 0.2 }}
                         >
-                            <Button
+                            <GradientButton
                                 size="lg"
-                                className="bg-gradient-to-r from-primary to-primary-accent hover:from-primary/90 hover:to-primary-accent/90"
                                 onClick={() => navigate("/signup")}
                             >
                                 Get Started{" "}
                                 <ArrowRight className="ml-2 h-4 w-4" />
-                            </Button>
+                            </GradientButton>
                             <Button size="lg" variant="outline">
                                 Learn More
                             </Button>

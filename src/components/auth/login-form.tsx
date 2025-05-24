@@ -1,26 +1,30 @@
 import type React from "react";
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router";
+import { useLogin } from "@/hooks/useAuth";
 
 export function LoginForm() {
-    const navigate = useNavigate();
-    const [isLoading, setIsLoading] = useState(false);
+    const { mutate: login, isPending } = useLogin();
+    const [formData, setFormData] = useState({
+        email: "",
+        password: "",
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsLoading(true);
+        login(formData);
+    };
 
-        // Simulate authentication delay
-        setTimeout(() => {
-            setIsLoading(false);
-            navigate("/home");
-        }, 1500);
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { id, value } = e.target;
+        setFormData((prev) => ({
+            ...prev,
+            [id]: value,
+        }));
     };
 
     return (
@@ -38,6 +42,8 @@ export function LoginForm() {
                     type="email"
                     placeholder="name@example.com"
                     required
+                    value={formData.email}
+                    onChange={handleChange}
                     className="transition-all duration-200 focus:ring-2 focus:ring-primary/50"
                 />
             </div>
@@ -55,6 +61,8 @@ export function LoginForm() {
                     id="password"
                     type="password"
                     required
+                    value={formData.password}
+                    onChange={handleChange}
                     className="transition-all duration-200 focus:ring-2 focus:ring-primary/50"
                 />
             </div>
@@ -67,9 +75,9 @@ export function LoginForm() {
             <Button
                 type="submit"
                 className="w-full bg-gradient-to-r from-primary to-primary-accent hover:from-primary/90 hover:to-primary-accent/90"
-                disabled={isLoading}
+                disabled={isPending}
             >
-                {isLoading ? "Signing in..." : "Sign in"}
+                {isPending ? "Signing in..." : "Sign in"}
             </Button>
 
             <div className="relative">
