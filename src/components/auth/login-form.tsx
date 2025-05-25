@@ -6,17 +6,26 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { motion } from "framer-motion";
 import { useLogin } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 
 export function LoginForm() {
     const { mutate: login, isPending } = useLogin();
     const [formData, setFormData] = useState({
-        email: "",
+        identifier: "",
         password: "",
     });
 
+    const isEmail = (value: string) => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(value);
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        login(formData);
+        const loginData = isEmail(formData.identifier)
+            ? { email: formData.identifier, password: formData.password }
+            : { username: formData.identifier, password: formData.password };
+        login(loginData);
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,15 +45,20 @@ export function LoginForm() {
             transition={{ duration: 0.3 }}
         >
             <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="identifier">Email or Username</Label>
                 <Input
-                    id="email"
-                    type="email"
-                    placeholder="name@example.com"
+                    id="identifier"
+                    type="text"
+                    placeholder="name@example.com or username"
                     required
-                    value={formData.email}
+                    value={formData.identifier}
                     onChange={handleChange}
-                    className="transition-all duration-200 focus:ring-2 focus:ring-primary/50"
+                    className={cn(
+                        "transition-all duration-200 focus:ring-2 focus:ring-primary/50",
+                        formData.identifier &&
+                            !isEmail(formData.identifier) &&
+                            "lowercase"
+                    )}
                 />
             </div>
             <div className="space-y-2">
