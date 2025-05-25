@@ -13,12 +13,16 @@ export const useLogin = () => {
     const navigate = useNavigate();
     return useMutation({
         mutationFn: (credentials: LoginRequest) => login(credentials),
-        onSuccess: () => {
-            navigate("/home");
-            toast.success("Login successful");
+        onSuccess: (result) => {
+            if (result.success) {
+                navigate("/home");
+                toast.success(result.message || "Login successful");
+            } else {
+                toast.error(result.message || "Login failed");
+            }
         },
-        onError: () => {
-            toast.error("Login failed");
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || "Login failed");
         },
     });
 };
@@ -27,12 +31,16 @@ export const useLogout = () => {
     const navigate = useNavigate();
     return useMutation({
         mutationFn: () => logout(),
-        onSuccess: () => {
-            navigate("/login");
-            toast.success("Logout successful");
+        onSuccess: (result) => {
+            if (result.success) {
+                navigate("/login");
+                toast.success(result.message || "Logout successful");
+            } else {
+                toast.error(result.message || "Logout failed");
+            }
         },
-        onError: () => {
-            toast.error("Logout failed");
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || "Logout failed");
         },
     });
 };
