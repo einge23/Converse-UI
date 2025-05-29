@@ -239,3 +239,30 @@ export const register = async (
         };
     }
 };
+
+export type User = {
+    user_id: string;
+    username: string;
+    email: string;
+    display_name: string;
+    avatar_url: string | null;
+    status: "online" | "offline" | "away" | "do_not_disturb";
+    last_active_at: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export const getCurrentUser = async (): Promise<User | null> => {
+    try {
+        const response = await authApiBase().get("/api/v1/me");
+
+        if (response.status === 200) {
+            return response.data;
+        }
+
+        return null;
+    } catch (error: any) {
+        console.error("Failed to fetch current user:", error);
+        return null;
+    }
+};
