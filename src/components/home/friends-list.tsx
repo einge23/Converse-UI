@@ -78,9 +78,9 @@ export function FriendsList({ onSelectFriend }: FriendsListProps) {
     // Determine what to show based on active tab
     const showPendingRequests = activeTab === "pending";
     const showAddFriend = activeTab === "add";
-    const itemsToShow = showPendingRequests
-        ? filteredPendingRequests
-        : filteredFriends;
+    // const itemsToShow = showPendingRequests
+    //     ? filteredPendingRequests
+    //     : filteredFriends;
     const itemCount = showPendingRequests
         ? filteredPendingRequests.length
         : filteredFriends.length;
