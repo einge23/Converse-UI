@@ -200,23 +200,33 @@ export type RegisterResult = {
     success: boolean;
     status: number;
     message?: string;
+    token?: string;
+    session_id?: string;
 };
 
 export const register = async (
     data: RegisterRequest
 ): Promise<RegisterResult> => {
     try {
-        console.log(
-            "Making registration request to:",
-            `${authApiBase()}/api/v1/auth/register`
-        );
         const response = await authApiBase().post(
             "/api/v1/auth/register",
             data
         );
-        console.log("Registration response:", response);
 
         if (response.status === 201) {
+            if (response.data.token && response.data.session_id) {
+                Cookies.set("token", response.data.token);
+                Cookies.set("sessionId", response.data.session_id);
+
+                return {
+                    success: true,
+                    status: 201,
+                    message: "Registration successful",
+                    token: response.data.token,
+                    session_id: response.data.session_id,
+                };
+            }
+
             return {
                 success: true,
                 status: 201,

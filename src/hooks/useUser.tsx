@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useEffect } from "react";
+import React, {
+    createContext,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentUser, type User } from "@/api/auth";
 import Cookies from "js-cookie";
@@ -12,64 +18,74 @@ type UserContextType = {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
+// Custom hook to watch for token changes in cookies
+function useTokenWatcher() {
+    const [token, setToken] = useState<string | undefined>(
+        Cookies.get("token")
+    );
+
+    useEffect(() => {
+        // Poll for token changes every 100ms
+        const interval = setInterval(() => {
+            const currentToken = Cookies.get("token");
+            if (currentToken !== token) {
+                setToken(currentToken);
+            }
+        }, 100);
+
+        return () => clearInterval(interval);
+    }, [token]);
+
+    return token;
+}
+
 export function UserProvider({ children }: { children: React.ReactNode }) {
     const queryClient = useQueryClient();
-    const token = Cookies.get("token");
+    const token = useTokenWatcher();
+    const prevTokenRef = useRef<string | undefined>(token);
 
     const {
         data: user,
         isLoading,
         refetch,
-        error,
     } = useQuery({
-        queryKey: ["currentUser"],
+        queryKey: ["currentUser", token],
         queryFn: getCurrentUser,
-        enabled: !!token, // Only fetch if we have a token
+        enabled: !!token,
         staleTime: 1000 * 60 * 5, // 5 minutes
         retry: (failureCount, error: any) => {
-            // Don't retry on 401 errors (unauthorized)
             if (error?.response?.status === 401) {
                 return false;
             }
             return failureCount < 3;
         },
-        refetchOnWindowFocus: false, // Prevent unnecessary refetches
     });
 
-    // Watch for token changes and trigger data fetching
+    // Handle token changes
     useEffect(() => {
-        if (!token) {
-            queryClient.setQueryData(["currentUser"], null);
-            queryClient.setQueryData(["friendRequests"], null);
-        } else if (token) {
-            // When we have a token, ensure user data is fetched
-            if (!user && !isLoading) {
-                console.log("Token detected, refetching user data...");
-                refetch();
+        const prevToken = prevTokenRef.current;
+
+        if (prevToken !== token) {
+            if (!token) {
+                queryClient.clear();
             }
-            // Also ensure friend requests are fetched when user becomes authenticated
-            if (user) {
-                queryClient.invalidateQueries({ queryKey: ["friendRequests"] });
-            }
+            prevTokenRef.current = token;
         }
-    }, [token, queryClient, user, isLoading, refetch]);
+    }, [token, queryClient]);
 
     // Handle authentication errors
     useEffect(() => {
-        if (error?.response?.status === 401) {
-            console.log("Authentication error, clearing tokens...");
-            // Clear invalid token and user data
+        if (user === null && token) {
             Cookies.remove("token");
             Cookies.remove("sessionId");
-            queryClient.clear();
         }
-    }, [error, queryClient]);
+    }, [user, token]);
 
     const value: UserContextType = {
         user: user || null,
         isLoading,
         isAuthenticated: !!user && !!token,
-        refetchUser: () => refetch(),
+        refetchUser: refetch,
     };
 
     return (

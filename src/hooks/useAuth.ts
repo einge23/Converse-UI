@@ -15,21 +15,12 @@ export const useLogin = () => {
 
     return useMutation({
         mutationFn: (credentials: LoginRequest) => login(credentials),
-        onSuccess: async (result) => {
+        onSuccess: (result) => {
             if (result.success) {
-                // Clear any existing stale data first
+                // Clear cache and navigate - UserProvider will handle the rest
                 queryClient.clear();
-
-                // Give a small delay to allow the UserProvider to detect the new token
-                await new Promise((resolve) => setTimeout(resolve, 100));
-
-                // Navigate first, then let the UserProvider handle data fetching
                 navigate("/home");
-                toast.success(result.message || "Login successful");
-
-                // Invalidate queries after navigation to trigger fresh data fetch
-                queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-                queryClient.invalidateQueries({ queryKey: ["friendRequests"] });
+                toast.success("Login successful");
             } else {
                 toast.error(result.message || "Login failed");
             }
@@ -47,20 +38,13 @@ export const useLogout = () => {
     return useMutation({
         mutationFn: () => logout(),
         onSuccess: (result) => {
-            if (result.success) {
-                // Clear ALL cached data after logout
-                queryClient.clear();
-                // Also explicitly remove specific query data
-                queryClient.setQueryData(["currentUser"], null);
-                queryClient.setQueryData(["friendRequests"], null);
-                navigate("/login");
-                toast.success(result.message || "Logout successful");
-            } else {
-                toast.error(result.message || "Logout failed");
-            }
+            // Clear cache and navigate regardless of result
+            queryClient.clear();
+            navigate("/login");
+            toast.success(result.message || "Logout successful");
         },
         onError: (error: any) => {
-            // Even on error, clear the cache in case of network issues
+            // Even on error, clear cache and navigate
             queryClient.clear();
             navigate("/login");
             toast.error(error.response?.data?.message || "Logout failed");
@@ -73,38 +57,24 @@ export const useRegister = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: (data: RegisterRequest) => {
-            console.log("Attempting registration with data:", data);
-            return register(data);
-        },
-        onSuccess: async (result) => {
-            console.log("Registration successful:", result);
+        mutationFn: (data: RegisterRequest) => register(data),
+        onSuccess: (result) => {
             if (result.success) {
-                // Ensure user data is fetched after successful registration
-                try {
-                    await queryClient.invalidateQueries({
-                        queryKey: ["currentUser"],
-                    });
-                    await queryClient.refetchQueries({
-                        queryKey: ["currentUser"],
-                    });
+                if (result.token && result.session_id) {
+                    // Auto-login: clear cache and navigate - UserProvider will fetch fresh data
+                    queryClient.clear();
                     navigate("/home");
                     toast.success("Registration successful");
-                } catch (error) {
-                    console.error(
-                        "Failed to fetch user data after registration:",
-                        error
-                    );
-                    toast.error(
-                        "Registration successful but failed to load user data. Please refresh the page."
-                    );
+                } else {
+                    // Manual login required
+                    navigate("/login");
+                    toast.success("Registration successful. Please login.");
                 }
             } else {
                 toast.error(result.message || "Registration failed");
             }
         },
         onError: (error: any) => {
-            console.error("Registration error:", error);
             toast.error(error.response?.data?.message || "Registration failed");
         },
     });
