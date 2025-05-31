@@ -60,7 +60,7 @@ export default function HomePage() {
                         onBack={() => handleSelectFriend(null)}
                     />
                 ) : (
-                    <FriendsList onSelectFriend={handleSelectFriend} />
+                    <FriendsList />
                 )}
             </main>
         </div>

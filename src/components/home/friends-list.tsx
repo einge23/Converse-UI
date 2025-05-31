@@ -19,11 +19,9 @@ import { type FriendRequestWithUser } from "@/api/friends";
 import { toast } from "sonner";
 import { useNavigate } from "react-router";
 
-interface FriendsListProps {
-    onSelectFriend?: (friendId: string) => void;
-}
+interface FriendsListProps {}
 
-export function FriendsList({ onSelectFriend }: FriendsListProps) {
+export function FriendsList({}: FriendsListProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState("online");
     const [friendUsername, setFriendUsername] = useState("");
