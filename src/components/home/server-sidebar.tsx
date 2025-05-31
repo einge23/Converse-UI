@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { LogOut, MessageCircle, Plus, Settings, Users } from "lucide-react";
+import { LogOut, Plus, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLogout } from "@/hooks/useAuth";
 import {
@@ -16,7 +16,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 const servers = [
-    { id: "home", name: "Home", icon: <MessageCircle className="h-5 w-5" /> },
     {
         id: "friends",
         name: "Friends",
@@ -29,11 +28,23 @@ const servers = [
     { id: "server4", name: "Music Lounge", initial: "M" },
 ];
 
-export function ServerSidebar() {
+interface ServerSidebarProps {
+    selectedServer?: string;
+    onServerSelect?: (serverId: string) => void;
+}
+
+export function ServerSidebar({
+    selectedServer = "friends",
+    onServerSelect,
+}: ServerSidebarProps) {
     const logoutMutation = useLogout();
 
     const handleLogout = () => {
         logoutMutation.mutate();
+    };
+
+    const handleServerClick = (serverId: string) => {
+        onServerSelect?.(serverId);
     };
 
     return (
@@ -47,15 +58,16 @@ export function ServerSidebar() {
                         transition={{ duration: 0.2, delay: index * 0.05 }}
                         className="relative"
                     >
-                        {server.active && (
+                        {selectedServer === server.id && (
                             <div className="absolute -left-2 top-1/2 h-2 w-1 -translate-y-1/2 rounded-full bg-primary" />
                         )}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button
+                                    onClick={() => handleServerClick(server.id)}
                                     className={cn(
                                         "group flex h-12 w-12 items-center justify-center rounded-full transition-all hover:rounded-2xl",
-                                        server.active
+                                        selectedServer === server.id
                                             ? "bg-primary text-primary-foreground"
                                             : "bg-card text-muted-foreground hover:bg-primary/10 hover:text-primary"
                                     )}
@@ -72,7 +84,7 @@ export function ServerSidebar() {
                             </TooltipContent>
                         </Tooltip>
 
-                        {index === 1 && (
+                        {index === 0 && (
                             <Separator className="my-2 h-[2px] w-8 rounded-full bg-muted-foreground/20" />
                         )}
                     </motion.div>

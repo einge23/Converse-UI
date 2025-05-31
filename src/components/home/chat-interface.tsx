@@ -1,158 +1,108 @@
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Gift, Paperclip, Plus, Send, Smile } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-
-interface Message {
-    id: string;
-    senderId: string;
-    content: string;
-    timestamp: string;
-    isCurrentUser: boolean;
-}
+import { useChat, type Message } from "@/hooks/useChat";
+import { useUser } from "@/hooks/useUser";
+import { useFriends } from "@/hooks/useFriendships";
 
 interface ChatInterfaceProps {
     friendId: string;
     onBack: () => void;
 }
 
-// Mock data
-const friends = {
-    friend1: {
-        id: "friend1",
-        name: "Alex Johnson",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "online",
-    },
-    friend2: {
-        id: "friend2",
-        name: "Sam Wilson",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "idle",
-    },
-    friend3: {
-        id: "friend3",
-        name: "Taylor Moore",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "dnd",
-    },
-    friend4: {
-        id: "friend4",
-        name: "Jordan Lee",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "offline",
-    },
-    friend5: {
-        id: "friend5",
-        name: "Casey Kim",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "online",
-    },
-    friend6: {
-        id: "friend6",
-        name: "Riley Brown",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "online",
-    },
-    friend7: {
-        id: "friend7",
-        name: "Quinn Smith",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "idle",
-    },
-    friend8: {
-        id: "friend8",
-        name: "Morgan Davis",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "offline",
-    },
-};
-
-const mockMessages: Record<string, Message[]> = {
-    friend1: [
-        {
-            id: "msg1",
-            senderId: "friend1",
-            content: "Hey there! How's it going?",
-            timestamp: "Today at 10:30 AM",
-            isCurrentUser: false,
-        },
-        {
-            id: "msg2",
-            senderId: "currentUser",
-            content:
-                "Hi Alex! I'm doing well, thanks for asking. How about you?",
-            timestamp: "Today at 10:32 AM",
-            isCurrentUser: true,
-        },
-        {
-            id: "msg3",
-            senderId: "friend1",
-            content:
-                "Pretty good! Just working on that project we discussed last week.",
-            timestamp: "Today at 10:35 AM",
-            isCurrentUser: false,
-        },
-        {
-            id: "msg4",
-            senderId: "currentUser",
-            content: "Oh nice! How's that coming along?",
-            timestamp: "Today at 10:36 AM",
-            isCurrentUser: true,
-        },
-        {
-            id: "msg5",
-            senderId: "friend1",
-            content:
-                "Making progress! I think we'll be able to finish it by the end of the week.",
-            timestamp: "Today at 10:40 AM",
-            isCurrentUser: false,
-        },
-    ],
-    friend2: [
-        {
-            id: "msg1",
-            senderId: "friend2",
-            content: "Did you see the game last night?",
-            timestamp: "Yesterday at 8:15 PM",
-            isCurrentUser: false,
-        },
-        {
-            id: "msg2",
-            senderId: "currentUser",
-            content:
-                "Yeah, it was amazing! That last-minute goal was incredible.",
-            timestamp: "Yesterday at 8:20 PM",
-            isCurrentUser: true,
-        },
-    ],
-};
-
 export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
-    const friend = friends[friendId as keyof typeof friends];
-    const [messages, setMessages] = useState<Message[]>(
-        mockMessages[friendId] || []
-    );
+    const { user } = useUser();
+    const { data: friends = [] } = useFriends();
     const [newMessage, setNewMessage] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const {
+        getConversation,
+        sendMessage,
+        startTyping,
+        stopTyping,
+        setCurrentUserId,
+        setActiveConversationId,
+        connect,
+        isConnected,
+    } = useChat({
+        autoConnect: false,
+    });
+
+    const friend = friends.find(
+        (f) => f.user_id === friendId || f.dm_thread_id === friendId
+    );
+
+    const conversationId = friend ? friend.user_id : friendId;
+    const conversation = getConversation(conversationId);
+    const messages = conversation?.messages || [];
+
+    useEffect(() => {
+        if (user?.user_id) {
+            setCurrentUserId(user.user_id);
+        }
+    }, [user?.user_id, setCurrentUserId]);
+
+    useEffect(() => {
+        setActiveConversationId(conversationId);
+
+        if (!isConnected && user?.user_id) {
+            connect();
+        }
+
+        return () => setActiveConversationId(null);
+    }, [
+        conversationId,
+        setActiveConversationId,
+        connect,
+        isConnected,
+        user?.user_id,
+    ]);
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
 
     const handleSendMessage = () => {
-        if (!newMessage.trim()) return;
+        if (!newMessage.trim() || !isConnected) return;
 
-        const newMsg: Message = {
-            id: `msg${Date.now()}`,
-            senderId: "currentUser",
-            content: newMessage,
-            timestamp: "Just now",
-            isCurrentUser: true,
-        };
-
-        setMessages([...messages, newMsg]);
+        sendMessage(conversationId, newMessage.trim());
         setNewMessage("");
+
+        if (isTyping) {
+            stopTyping(conversationId);
+            setIsTyping(false);
+        }
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setNewMessage(e.target.value);
+
+        if (!isTyping && e.target.value.trim()) {
+            setIsTyping(true);
+            startTyping(conversationId);
+        }
+
+        // Clear existing timeout
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        // Set new timeout to stop typing indicator
+        typingTimeoutRef.current = setTimeout(() => {
+            if (isTyping) {
+                setIsTyping(false);
+                stopTyping(conversationId);
+            }
+        }, 1000);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -161,6 +111,74 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
             handleSendMessage();
         }
     };
+
+    // Format timestamp for display
+    const formatTimestamp = (timestamp: string) => {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+
+        if (diffInHours < 24) {
+            return date.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+            });
+        } else {
+            return date.toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+            });
+        }
+    };
+
+    // Get message status indicator
+    const getMessageStatusIndicator = (message: Message) => {
+        if (!message.isCurrentUser) return null;
+
+        switch (message.status) {
+            case "sending":
+                return (
+                    <span className="text-xs text-muted-foreground ml-1">
+                        ⏳
+                    </span>
+                );
+            case "sent":
+                return (
+                    <span className="text-xs text-muted-foreground ml-1">
+                        ✓
+                    </span>
+                );
+            case "delivered":
+                return (
+                    <span className="text-xs text-muted-foreground ml-1">
+                        ✓✓
+                    </span>
+                );
+            case "failed":
+                return <span className="text-xs text-red-500 ml-1">❌</span>;
+            default:
+                return null;
+        }
+    };
+
+    // Helper function to get display name, fallback to username if display_name is empty
+    const getDisplayName = (friend: any) => {
+        return friend.display_name?.trim() || friend.username;
+    };
+
+    // Helper function to get avatar fallback
+    const getAvatarFallback = (friend: any) => {
+        const name = getDisplayName(friend);
+        return name.charAt(0).toUpperCase();
+    };
+
+    if (!friend) {
+        return (
+            <div className="flex h-full items-center justify-center">
+                <p className="text-muted-foreground">Friend not found</p>
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-full flex-col">
@@ -177,30 +195,36 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                     <div className="relative">
                         <Avatar>
                             <AvatarImage
-                                src={friend.avatar || "/placeholder.svg"}
-                                alt={friend.name}
+                                src={friend.avatar_url || "/placeholder.svg"}
+                                alt={getDisplayName(friend)}
                             />
                             <AvatarFallback>
-                                {friend.name.charAt(0)}
+                                {getAvatarFallback(friend)}
                             </AvatarFallback>
                         </Avatar>
                         <div
                             className={cn(
                                 "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background",
                                 friend.status === "online" && "bg-emerald-500",
-                                friend.status === "idle" && "bg-amber-500",
-                                friend.status === "dnd" && "bg-red-500",
+                                friend.status === "away" && "bg-amber-500",
+                                friend.status === "do_not_disturb" &&
+                                    "bg-red-500",
                                 friend.status === "offline" && "bg-muted"
                             )}
                         />
                     </div>
                     <div>
-                        <h2 className="font-semibold">{friend.name}</h2>
+                        <h2 className="font-semibold">{friend.display_name}</h2>
                         <p className="text-xs text-muted-foreground">
-                            {friend.status}
+                            {!isConnected ? "Offline" : friend.status}
                         </p>
                     </div>
                 </div>
+                {!isConnected && (
+                    <div className="ml-auto text-xs text-amber-500">
+                        Reconnecting...
+                    </div>
+                )}
             </header>
 
             <div className="custom-scrollbar flex-1 overflow-y-auto p-4">
@@ -208,7 +232,12 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                     {messages.map((message, index) => {
                         const isFirstInGroup =
                             index === 0 ||
-                            messages[index - 1].senderId !== message.senderId;
+                            messages[index - 1].senderId !== message.senderId ||
+                            new Date(message.timestamp).getTime() -
+                                new Date(
+                                    messages[index - 1].timestamp
+                                ).getTime() >
+                                300000; // 5 minutes
 
                         return (
                             <motion.div
@@ -226,20 +255,23 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                                         <AvatarImage
                                             src={
                                                 message.isCurrentUser
-                                                    ? "/placeholder.svg"
-                                                    : friend.avatar ||
+                                                    ? user?.avatar_url ||
+                                                      "/placeholder.svg"
+                                                    : friend.avatar_url ||
                                                       "/placeholder.svg"
                                             }
                                             alt={
                                                 message.isCurrentUser
                                                     ? "You"
-                                                    : friend.name
+                                                    : friend.display_name
                                             }
                                         />
                                         <AvatarFallback>
                                             {message.isCurrentUser
-                                                ? "Y"
-                                                : friend.name.charAt(0)}
+                                                ? user?.display_name?.charAt(
+                                                      0
+                                                  ) || "Y"
+                                                : friend.display_name.charAt(0)}
                                         </AvatarFallback>
                                     </Avatar>
                                 )}
@@ -250,28 +282,67 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                                             <span className="font-medium">
                                                 {message.isCurrentUser
                                                     ? "You"
-                                                    : friend.name}
+                                                    : friend.display_name}
                                             </span>
                                             <span className="text-xs text-muted-foreground">
-                                                {message.timestamp}
+                                                {formatTimestamp(
+                                                    message.timestamp
+                                                )}
                                             </span>
                                         </div>
                                     )}
 
                                     <div
                                         className={cn(
-                                            "rounded-lg px-3 py-2",
+                                            "rounded-lg px-3 py-2 relative",
                                             message.isCurrentUser
                                                 ? "bg-primary text-primary-foreground"
                                                 : "bg-muted"
                                         )}
                                     >
-                                        {message.content}
+                                        <span>{message.content}</span>
+                                        {getMessageStatusIndicator(message)}
                                     </div>
                                 </div>
                             </motion.div>
                         );
                     })}
+
+                    {/* Typing indicator */}
+                    {conversation?.isTyping && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="flex gap-3"
+                        >
+                            <Avatar className="mt-0.5 h-9 w-9">
+                                <AvatarImage
+                                    src={
+                                        friend.avatar_url || "/placeholder.svg"
+                                    }
+                                    alt={friend.display_name}
+                                />
+                                <AvatarFallback>
+                                    {friend.display_name.charAt(0)}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div className="rounded-lg bg-muted px-3 py-2">
+                                <div className="flex space-x-1">
+                                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
+                                    <div
+                                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
+                                        style={{ animationDelay: "0.1s" }}
+                                    ></div>
+                                    <div
+                                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
+                                        style={{ animationDelay: "0.2s" }}
+                                    ></div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    <div ref={messagesEndRef} />
                 </div>
             </div>
 
@@ -283,18 +354,24 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                        disabled={!isConnected}
                     >
                         <Plus className="h-5 w-5" />
                     </Button>
 
                     <div className="relative flex-1">
                         <textarea
-                            className="max-h-32 min-h-10 w-full resize-none bg-transparent p-2 text-sm focus:outline-none"
-                            placeholder={`Message ${friend.name}...`}
+                            className="max-h-32 min-h-10 w-full resize-none bg-transparent p-2 text-sm focus:outline-none disabled:opacity-50"
+                            placeholder={
+                                !isConnected
+                                    ? "Connecting..."
+                                    : `Message ${friend.display_name}...`
+                            }
                             rows={1}
                             value={newMessage}
-                            onChange={(e) => setNewMessage(e.target.value)}
+                            onChange={handleInputChange}
                             onKeyDown={handleKeyDown}
+                            disabled={!isConnected}
                         />
                     </div>
 
@@ -303,6 +380,7 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            disabled={!isConnected}
                         >
                             <Gift className="h-5 w-5" />
                         </Button>
@@ -310,6 +388,7 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            disabled={!isConnected}
                         >
                             <Paperclip className="h-5 w-5" />
                         </Button>
@@ -317,6 +396,7 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            disabled={!isConnected}
                         >
                             <Smile className="h-5 w-5" />
                         </Button>
@@ -324,9 +404,10 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                             size="icon"
                             className={cn(
                                 "h-8 w-8",
-                                !newMessage.trim() && "opacity-50"
+                                (!newMessage.trim() || !isConnected) &&
+                                    "opacity-50"
                             )}
-                            disabled={!newMessage.trim()}
+                            disabled={!newMessage.trim() || !isConnected}
                             onClick={handleSendMessage}
                         >
                             <Send className="h-4 w-4" />
