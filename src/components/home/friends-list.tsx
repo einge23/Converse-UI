@@ -41,14 +41,12 @@ export function FriendsList({}: FriendsListProps) {
         console.log("First friend object:", friends[0]);
         console.log("First friend display_name:", friends[0]?.display_name);
     }
-
     const {
         conversations,
         getTotalUnreadCount,
         setCurrentUserId,
         isConnected,
     } = useChat({
-        autoConnect: false, // Don't auto-connect
         onNewMessage: (message, conversationId) => {
             // Show notification for new messages
             const friend = friends.find((f) => f.user_id === conversationId);
@@ -120,21 +118,15 @@ export function FriendsList({}: FriendsListProps) {
         const friend = friends.find((f) => f.user_id === friendId);
         const dmId = friend?.dm_thread_id || friendId;
         navigate(`/app/friends/${dmId}`);
-    };
-
-    // Get unread count for a specific friend
+    }; // Get unread count for a specific friend
     const getUnreadCount = (friendId: string) => {
-        const conversation = conversations.find(
-            (c) => c.participantId === friendId
-        );
+        const conversation = conversations.find((c) => c.threadId === friendId);
         return conversation?.unreadCount || 0;
     };
 
     // Get last message for a friend
     const getLastMessage = (friendId: string) => {
-        const conversation = conversations.find(
-            (c) => c.participantId === friendId
-        );
+        const conversation = conversations.find((c) => c.threadId === friendId);
         return conversation?.lastMessage;
     };
 

@@ -1,13 +1,13 @@
 import type React from "react";
 
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Gift, Paperclip, Plus, Send, Smile } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { useChat, type Message } from "@/hooks/useChat";
+import { useChat } from "@/hooks/useChat";
 import { useUser } from "@/hooks/useUser";
 import { useFriends } from "@/hooks/useFriendships";
 
@@ -16,11 +16,24 @@ interface ChatInterfaceProps {
     onBack: () => void;
 }
 
+const typingPrompts = [
+    "Say hello! 👋",
+    "Ask about their day",
+    "Share something interesting",
+    "Start a conversation",
+    "Send a friendly message",
+    "Break the ice with a joke",
+    "Ask how they're doing",
+    "Share what you're up to",
+];
+
 export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
     const { user } = useUser();
     const { data: friends = [] } = useFriends();
     const [newMessage, setNewMessage] = useState("");
     const [isTyping, setIsTyping] = useState(false);
+    const [showTypingPrompts, setShowTypingPrompts] = useState(true);
+    const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -30,65 +43,70 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
         startTyping,
         stopTyping,
         setCurrentUserId,
-        setActiveConversationId,
-        connect,
+        setActiveThreadId,
         isConnected,
-    } = useChat({
-        autoConnect: false,
-    });
+    } = useChat(); // Auto-connects when used
 
+    // Find the friend and determine thread ID
     const friend = friends.find(
         (f) => f.user_id === friendId || f.dm_thread_id === friendId
     );
 
-    const conversationId = friend ? friend.user_id : friendId;
-    const conversation = getConversation(conversationId);
+    const threadId = friend?.dm_thread_id || "";
+    const conversation = getConversation(threadId);
     const messages = conversation?.messages || [];
+    const isOtherUserTyping = (conversation?.typingUsers?.size ?? 0) > 0;
 
+    // Set current user ID when available
     useEffect(() => {
         if (user?.user_id) {
             setCurrentUserId(user.user_id);
         }
     }, [user?.user_id, setCurrentUserId]);
 
+    // Set active thread ID and cleanup
     useEffect(() => {
-        setActiveConversationId(conversationId);
+        setActiveThreadId(threadId);
+        return () => setActiveThreadId(null);
+    }, [threadId, setActiveThreadId]);
 
-        if (!isConnected && user?.user_id) {
-            connect();
+    // Cycle through typing prompts when no messages exist
+    useEffect(() => {
+        if (messages.length === 0 && showTypingPrompts) {
+            const interval = setInterval(() => {
+                setCurrentPromptIndex(
+                    (prev) => (prev + 1) % typingPrompts.length
+                );
+            }, 3000);
+            return () => clearInterval(interval);
         }
+    }, [messages.length, showTypingPrompts]);
 
-        return () => setActiveConversationId(null);
-    }, [
-        conversationId,
-        setActiveConversationId,
-        connect,
-        isConnected,
-        user?.user_id,
-    ]);
-
+    // Auto-scroll to bottom when new messages arrive
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
     const handleSendMessage = () => {
-        if (!newMessage.trim() || !isConnected) return;
+        if (!newMessage.trim() || !isConnected || !threadId) return;
 
-        sendMessage(conversationId, newMessage.trim());
+        sendMessage(threadId, newMessage.trim());
         setNewMessage("");
+        setShowTypingPrompts(false);
 
         if (isTyping) {
-            stopTyping(conversationId);
+            stopTyping(threadId);
             setIsTyping(false);
         }
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setNewMessage(e.target.value);
+        setShowTypingPrompts(false);
 
-        if (!isTyping && e.target.value.trim()) {
+        if (!isTyping && e.target.value.trim() && threadId) {
             setIsTyping(true);
-            startTyping(conversationId);
+            startTyping(threadId);
         }
 
         // Clear existing timeout
@@ -97,12 +115,18 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
         }
 
         // Set new timeout to stop typing indicator
-        typingTimeoutRef.current = setTimeout(() => {
-            if (isTyping) {
-                setIsTyping(false);
-                stopTyping(conversationId);
-            }
-        }, 1000);
+        if (e.target.value.trim() && threadId) {
+            typingTimeoutRef.current = setTimeout(() => {
+                if (isTyping) {
+                    setIsTyping(false);
+                    stopTyping(threadId);
+                }
+            }, 1000);
+        } else if (isTyping && threadId) {
+            // Stop typing immediately if input is empty
+            setIsTyping(false);
+            stopTyping(threadId);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -128,36 +152,6 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                 month: "short",
                 day: "numeric",
             });
-        }
-    };
-
-    // Get message status indicator
-    const getMessageStatusIndicator = (message: Message) => {
-        if (!message.isCurrentUser) return null;
-
-        switch (message.status) {
-            case "sending":
-                return (
-                    <span className="text-xs text-muted-foreground ml-1">
-                        ⏳
-                    </span>
-                );
-            case "sent":
-                return (
-                    <span className="text-xs text-muted-foreground ml-1">
-                        ✓
-                    </span>
-                );
-            case "delivered":
-                return (
-                    <span className="text-xs text-muted-foreground ml-1">
-                        ✓✓
-                    </span>
-                );
-            case "failed":
-                return <span className="text-xs text-red-500 ml-1">❌</span>;
-            default:
-                return null;
         }
     };
 
@@ -225,17 +219,64 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                         Reconnecting...
                     </div>
                 )}
-            </header>
+            </header>{" "}
+            {/* Messages container with bottom-up flow */}
+            <div className="custom-scrollbar flex-1 overflow-y-auto p-4 flex flex-col-reverse">
+                <div className="flex flex-col-reverse gap-1">
+                    {/* Typing indicator at bottom */}
+                    {isOtherUserTyping && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="flex items-center justify-center text-sm text-muted-foreground py-2"
+                        >
+                            {getDisplayName(friend)} is typing...
+                        </motion.div>
+                    )}
 
-            <div className="custom-scrollbar flex-1 overflow-y-auto p-4">
-                <div className="space-y-4">
-                    {messages.map((message, index) => {
+                    {/* Show typing prompts when no messages and empty input */}
+                    {messages.length === 0 &&
+                        showTypingPrompts &&
+                        !newMessage.trim() && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="flex flex-col items-center justify-center text-center py-8 space-y-4"
+                            >
+                                <div className="text-6xl">
+                                    {friend.avatar_url ? "" : "👋"}
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold mb-2">
+                                        Start a conversation with{" "}
+                                        {getDisplayName(friend)}
+                                    </h3>
+                                    <AnimatePresence mode="wait">
+                                        <motion.p
+                                            key={currentPromptIndex}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -10 }}
+                                            transition={{ duration: 0.3 }}
+                                            className="text-sm text-muted-foreground"
+                                        >
+                                            {typingPrompts[currentPromptIndex]}
+                                        </motion.p>
+                                    </AnimatePresence>
+                                </div>
+                            </motion.div>
+                        )}
+
+                    {/* Messages in reverse order */}
+                    {[...messages].reverse().map((message, index) => {
+                        const originalIndex = messages.length - 1 - index;
                         const isFirstInGroup =
-                            index === 0 ||
-                            messages[index - 1].senderId !== message.senderId ||
+                            originalIndex === 0 ||
+                            messages[originalIndex - 1].senderId !==
+                                message.senderId ||
                             new Date(message.timestamp).getTime() -
                                 new Date(
-                                    messages[index - 1].timestamp
+                                    messages[originalIndex - 1].timestamp
                                 ).getTime() >
                                 300000; // 5 minutes
 
@@ -245,109 +286,76 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.2 }}
-                                className={cn(
-                                    "flex gap-3",
-                                    !isFirstInGroup && "mt-1 pl-12"
-                                )}
+                                className="" /* Changed: Removed "flex flex-col gap-1" */
                             >
-                                {isFirstInGroup && (
-                                    <Avatar className="mt-0.5 h-9 w-9">
-                                        <AvatarImage
-                                            src={
-                                                message.isCurrentUser
-                                                    ? user?.avatar_url ||
-                                                      "/placeholder.svg"
-                                                    : friend.avatar_url ||
-                                                      "/placeholder.svg"
-                                            }
-                                            alt={
-                                                message.isCurrentUser
-                                                    ? "You"
-                                                    : friend.display_name
-                                            }
-                                        />
-                                        <AvatarFallback>
-                                            {message.isCurrentUser
-                                                ? user?.display_name?.charAt(
-                                                      0
-                                                  ) || "Y"
-                                                : friend.display_name.charAt(0)}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                )}
-
-                                <div className="max-w-[80%]">
+                                {/* Message content with avatar, username, and timestamp */}
+                                <div className="flex items-start gap-3 w-full max-w-2xl">
                                     {isFirstInGroup && (
-                                        <div className="mb-1 flex items-center gap-2">
-                                            <span className="font-medium">
+                                        <Avatar className="h-8 w-8 shrink-0">
+                                            <AvatarImage
+                                                src={
+                                                    message.isCurrentUser
+                                                        ? user?.avatar_url ||
+                                                          "/placeholder.svg"
+                                                        : friend.avatar_url ||
+                                                          "/placeholder.svg"
+                                                }
+                                                alt={
+                                                    message.isCurrentUser
+                                                        ? "You"
+                                                        : getDisplayName(friend)
+                                                }
+                                            />
+                                            <AvatarFallback>
                                                 {message.isCurrentUser
-                                                    ? "You"
-                                                    : friend.display_name}
-                                            </span>
-                                            <span className="text-xs text-muted-foreground">
-                                                {formatTimestamp(
-                                                    message.timestamp
-                                                )}
-                                            </span>
-                                        </div>
+                                                    ? user?.display_name?.charAt(
+                                                          0
+                                                      ) || "Y"
+                                                    : getAvatarFallback(friend)}
+                                            </AvatarFallback>
+                                        </Avatar>
                                     )}
-
+                                    {/* Column for username/timestamp and message content */}
                                     <div
                                         className={cn(
-                                            "rounded-lg px-3 py-2 relative",
-                                            message.isCurrentUser
-                                                ? "bg-primary text-primary-foreground"
-                                                : "bg-muted"
+                                            "flex flex-col",
+                                            !isFirstInGroup && "ml-11"
                                         )}
                                     >
-                                        <span>{message.content}</span>
-                                        {getMessageStatusIndicator(message)}
+                                        {" "}
+                                        {/* Add margin if avatar is not shown */}
+                                        {/* Username and timestamp */}
+                                        {isFirstInGroup && (
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                {" "}
+                                                {/* Removed ml-11 */}
+                                                <span className="font-medium">
+                                                    {message.isCurrentUser
+                                                        ? "You"
+                                                        : getDisplayName(
+                                                              friend
+                                                          )}
+                                                </span>
+                                                <span>
+                                                    {formatTimestamp(
+                                                        message.timestamp
+                                                    )}
+                                                </span>
+                                            </div>
+                                        )}{" "}
+                                        {/* Message text with proper color */}
+                                        <div className="text-sm text-foreground">
+                                            {message.content}
+                                        </div>
                                     </div>
                                 </div>
                             </motion.div>
                         );
                     })}
-
-                    {/* Typing indicator */}
-                    {conversation?.isTyping && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="flex gap-3"
-                        >
-                            <Avatar className="mt-0.5 h-9 w-9">
-                                <AvatarImage
-                                    src={
-                                        friend.avatar_url || "/placeholder.svg"
-                                    }
-                                    alt={friend.display_name}
-                                />
-                                <AvatarFallback>
-                                    {friend.display_name.charAt(0)}
-                                </AvatarFallback>
-                            </Avatar>
-                            <div className="rounded-lg bg-muted px-3 py-2">
-                                <div className="flex space-x-1">
-                                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
-                                    <div
-                                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                                        style={{ animationDelay: "0.1s" }}
-                                    ></div>
-                                    <div
-                                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                                        style={{ animationDelay: "0.2s" }}
-                                    ></div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
-
                     <div ref={messagesEndRef} />
                 </div>
             </div>
-
             <Separator />
-
             <div className="p-4">
                 <div className="flex items-center gap-2 rounded-lg bg-muted p-2">
                     <Button
@@ -365,7 +373,7 @@ export function ChatInterface({ friendId, onBack }: ChatInterfaceProps) {
                             placeholder={
                                 !isConnected
                                     ? "Connecting..."
-                                    : `Message ${friend.display_name}...`
+                                    : `Message ${getDisplayName(friend)}...`
                             }
                             rows={1}
                             value={newMessage}

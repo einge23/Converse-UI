@@ -1,9 +1,9 @@
 export const MessageType = {
-    CHAT_MESSAGE: "chat_message",
-    USER_TYPING: "user_typing",
-    USER_STOPPED_TYPING: "user_stopped_typing",
-    USER_STATUS_CHANGE: "user_status_change",
-    CONNECTION_ACK: "connection_ack",
+    NEW_MESSAGE: "new_message",
+    TYPING: "typing",
+    STOP_TYPING: "stop_typing",
+    USER_JOINED: "user_joined",
+    USER_LEFT: "user_left",
     ERROR: "error",
 } as const;
 
@@ -16,10 +16,33 @@ export interface WSMessage {
     id?: string;
 }
 
+// Updated to match backend structure
+export interface IncomingMessage {
+    type: string;
+    room_id?: string;
+    thread_id?: string;
+    content: string;
+    content_type?: string;
+}
+
+export interface OutgoingMessage {
+    type: string;
+    message_id?: string;
+    room_id?: string;
+    thread_id?: string;
+    sender_id: string;
+    content: string;
+    content_type: string;
+    created_at: string;
+    error?: string;
+}
+
+// Legacy interface for backward compatibility
 export interface ChatMessage {
     id: string;
     sender_id: string;
-    recipient_id: string;
+    recipient_id?: string; // For backward compatibility
+    thread_id?: string;
     content: string;
     timestamp: string;
     message_type: "text" | "image" | "file";
@@ -27,7 +50,7 @@ export interface ChatMessage {
 
 export interface TypingIndicator {
     user_id: string;
-    username: string;
+    thread_id?: string;
     is_typing: boolean;
 }
 
@@ -87,8 +110,6 @@ export class WebSocketService {
 
                 // Set up event handlers
                 this.ws.onopen = () => {
-                    console.log("WebSocket connected and authenticated");
-
                     this.isConnecting = false;
                     this.reconnectAttempts = 0;
                     this.reconnectInterval = 1000;
@@ -109,11 +130,6 @@ export class WebSocketService {
                 };
 
                 this.ws.onclose = (event) => {
-                    console.log(
-                        "WebSocket disconnected:",
-                        event.code,
-                        event.reason
-                    );
                     this.isConnecting = false;
                     this.stopPing();
 
@@ -124,7 +140,6 @@ export class WebSocketService {
                 };
 
                 this.ws.onerror = (error) => {
-                    console.error("WebSocket error:", error);
                     this.isConnecting = false;
                     reject(error);
                 };
@@ -150,7 +165,6 @@ export class WebSocketService {
 
     private handleReconnection(): void {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error("Max reconnection attempts reached");
             return;
         }
 
@@ -160,14 +174,10 @@ export class WebSocketService {
             30000
         );
 
-        console.log(
-            `Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`
-        );
-
         setTimeout(() => {
             if (this.token && this.userId) {
-                this.connect(this.token, this.userId).catch((error) => {
-                    console.error("Reconnection failed:", error);
+                this.connect(this.token, this.userId).catch(() => {
+                    // Silent retry - errors will be handled by the connect method
                 });
             }
         }, delay);
@@ -193,24 +203,88 @@ export class WebSocketService {
         }
     }
 
-    private handleMessage(message: WSMessage): void {
-        console.log("📥 Received WebSocket message:", {
-            type: message.type,
-            data: message.data,
-            timestamp: message.timestamp,
-            id: message.id,
-        });
+    sendMessage(threadId: string, content: string): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
 
-        const handlers = this.eventHandlers.get(message.type);
-        if (handlers) {
-            console.log(
-                `🔄 Calling ${handlers.size} handlers for message type: ${message.type}`
-            );
-            handlers.forEach((handler) => handler(message.data));
+        const message: IncomingMessage = {
+            type: MessageType.NEW_MESSAGE,
+            thread_id: threadId,
+            content,
+            content_type: "text",
+        };
+
+        this.ws.send(JSON.stringify(message));
+    }
+
+    sendTypingIndicator(threadId: string, isTyping: boolean): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        const message: IncomingMessage = {
+            type: isTyping ? "typing" : "stop_typing",
+            thread_id: threadId,
+            content: "", // Content required by backend but not used for typing
+        };
+
+        this.ws.send(JSON.stringify(message));
+    }
+
+    private handleMessage(message: any): void {
+        // Handle direct backend messages (not wrapped in WSMessage format)
+        if (message.type === "new_message") {
+            // Ensure we have a proper message_id from the server
+            if (!message.message_id) {
+                return;
+            }
+
+            const chatMessage: ChatMessage = {
+                id: message.message_id,
+                sender_id: message.sender_id,
+                thread_id: message.thread_id,
+                content: message.content,
+                timestamp: message.created_at || new Date().toISOString(),
+                message_type: message.content_type || "text",
+            };
+            const handlers = this.eventHandlers.get(MessageType.NEW_MESSAGE);
+            if (handlers) {
+                handlers.forEach((handler) => handler(chatMessage));
+            }
+        } else if (
+            message.type === "typing" ||
+            message.type === "stop_typing"
+        ) {
+            const typingData: TypingIndicator = {
+                user_id: message.sender_id,
+                thread_id: message.thread_id,
+                is_typing: message.type === "typing",
+            };
+
+            const messageType =
+                message.type === "typing"
+                    ? MessageType.TYPING
+                    : MessageType.STOP_TYPING;
+            const handlers = this.eventHandlers.get(messageType);
+            if (handlers) {
+                handlers.forEach((handler) => handler(typingData));
+            }
+        } else if (message.type === "error") {
+            const handlers = this.eventHandlers.get(MessageType.ERROR);
+            if (handlers) {
+                handlers.forEach((handler) =>
+                    handler({ error: message.error })
+                );
+            }
         } else {
-            console.warn(
-                `⚠️ No handlers registered for message type: ${message.type}`
-            );
+            // Handle legacy WSMessage format if needed
+            if (message.type && message.data) {
+                const handlers = this.eventHandlers.get(message.type);
+                if (handlers) {
+                    handlers.forEach((handler) => handler(message.data));
+                }
+            }
         }
     }
 
@@ -218,7 +292,8 @@ export class WebSocketService {
         if (!this.eventHandlers.has(type)) {
             this.eventHandlers.set(type, new Set());
         }
-        this.eventHandlers.get(type)!.add(handler);
+        const handlers = this.eventHandlers.get(type)!;
+        handlers.add(handler);
     }
 
     off(type: MessageType, handler: WSEventHandler): void {
@@ -226,71 +301,6 @@ export class WebSocketService {
         if (handlers) {
             handlers.delete(handler);
         }
-    }
-
-    sendMessage(recipientId: string, content: string): void {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.error("❌ WebSocket not connected - cannot send message");
-            return;
-        }
-
-        const message: WSMessage = {
-            type: MessageType.CHAT_MESSAGE,
-            data: {
-                recipient_id: recipientId,
-                content,
-                message_type: "text",
-            },
-            timestamp: new Date().toISOString(),
-            id: this.generateMessageId(),
-        };
-
-        console.log("📤 Sending message via WebSocket:", {
-            recipientId,
-            content,
-            messageId: message.id,
-            currentUserId: this.userId,
-        });
-
-        this.ws.send(JSON.stringify(message));
-    }
-
-    sendTypingIndicator(recipientId: string, isTyping: boolean): void {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
-
-        const message: WSMessage = {
-            type: isTyping
-                ? MessageType.USER_TYPING
-                : MessageType.USER_STOPPED_TYPING,
-            data: {
-                recipient_id: recipientId,
-            },
-            timestamp: new Date().toISOString(),
-        };
-
-        this.ws.send(JSON.stringify(message));
-    }
-
-    updateStatus(
-        status: "online" | "offline" | "away" | "do_not_disturb"
-    ): void {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
-
-        const message: WSMessage = {
-            type: MessageType.USER_STATUS_CHANGE,
-            data: { status },
-            timestamp: new Date().toISOString(),
-        };
-
-        this.ws.send(JSON.stringify(message));
-    }
-
-    private generateMessageId(): string {
-        return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
     isConnected(): boolean {

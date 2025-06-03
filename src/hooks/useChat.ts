@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useWebSocket } from "./useWebSocket";
-import { type ChatMessage } from "@/lib/websocket";
+import { type ChatMessage, type TypingIndicator } from "@/lib/websocket";
 
 export interface Message {
     id: string;
@@ -8,250 +8,262 @@ export interface Message {
     content: string;
     timestamp: string;
     isCurrentUser: boolean;
-    status?: "sending" | "sent" | "delivered" | "failed";
+    status: "delivered"; // Simplified - only show messages confirmed by server
 }
 
 export interface Conversation {
-    participantId: string;
+    threadId: string;
     messages: Message[];
     lastMessage?: Message;
     unreadCount: number;
-    isTyping: boolean;
+    typingUsers: Set<string>; // Track multiple users typing
 }
 
 export interface UseChatOptions {
-    autoConnect?: boolean;
-    onNewMessage?: (message: Message, conversationId: string) => void;
+    onNewMessage?: (message: Message, threadId: string) => void;
+    onTypingChange?: (
+        threadId: string,
+        isTyping: boolean,
+        userIds: string[]
+    ) => void;
 }
 
 export function useChat(options: UseChatOptions = {}) {
     const [conversations, setConversations] = useState<
         Map<string, Conversation>
     >(new Map());
-    const [activeConversationId, setActiveConversationId] = useState<
-        string | null
-    >(null);
-    const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+    const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
+    // Use refs for values that don't need to trigger re-renders
     const currentUserIdRef = useRef<string | null>(null);
+    const typingTimeoutsRef = useRef<Map<string, Map<string, NodeJS.Timeout>>>(
+        new Map()
+    );
 
-    // Get current user ID from the user context (you'll need to pass this)
-    const getCurrentUserId = useCallback(() => {
-        // This should be passed from the component or retrieved from useUser hook
-        return currentUserIdRef.current;
-    }, []);
+    // Track processed messages to prevent double-processing
+    const processedMessagesRef = useRef<Set<string>>(new Set());
 
+    const getCurrentUserId = useCallback(() => currentUserIdRef.current, []);
     const handleIncomingMessage = useCallback(
         (chatMessage: ChatMessage) => {
-            const currentUserId = getCurrentUserId();
-            console.log("🔥 Incoming message:", {
-                chatMessage,
-                currentUserId,
-                sender_id: chatMessage.sender_id,
-                recipient_id: chatMessage.recipient_id,
-            });
-
-            if (!currentUserId) {
-                console.warn("❌ No current user ID, ignoring message");
+            // Idempotent processing - check if we've already processed this message
+            const messageKey = `${chatMessage.id}-${chatMessage.timestamp}`;
+            if (processedMessagesRef.current.has(messageKey)) {
                 return;
             }
 
+            // Mark as processed immediately to prevent race conditions
+            processedMessagesRef.current.add(messageKey);
+
+            const threadId = chatMessage.thread_id;
+            if (!threadId) {
+                return;
+            }
+
+            const currentUserId = getCurrentUserId();
             const isCurrentUser = chatMessage.sender_id === currentUserId;
-            const conversationId = isCurrentUser
-                ? chatMessage.recipient_id
-                : chatMessage.sender_id;
-
-            console.log("📝 Processing message:", {
-                isCurrentUser,
-                conversationId,
-                activeConversationId,
-            });
-
-            const message: Message = {
-                id: chatMessage.id,
-                senderId: chatMessage.sender_id,
-                content: chatMessage.content,
-                timestamp: chatMessage.timestamp,
-                isCurrentUser,
-                status: "delivered",
-            };
-
             setConversations((prev) => {
                 const newConversations = new Map(prev);
-                const conversation = newConversations.get(conversationId) || {
-                    participantId: conversationId,
-                    messages: [],
-                    unreadCount: 0,
-                    isTyping: false,
-                };
 
-                conversation.messages.push(message);
-                conversation.lastMessage = message;
-
-                // Increment unread count only if this conversation is not currently active
-                if (conversationId !== activeConversationId && !isCurrentUser) {
-                    conversation.unreadCount += 1;
+                // Get or create conversation
+                let conversation = newConversations.get(threadId);
+                if (!conversation) {
+                    conversation = {
+                        threadId,
+                        messages: [],
+                        unreadCount: 0,
+                        typingUsers: new Set(),
+                    };
+                } // Check for duplicate messages
+                const existingMessageIndex = conversation.messages.findIndex(
+                    (msg) => msg.id === chatMessage.id
+                );
+                if (existingMessageIndex !== -1) {
+                    return prev; // No change if duplicate
                 }
 
-                newConversations.set(conversationId, conversation);
-                console.log(
-                    "💾 Updated conversations:",
-                    Array.from(newConversations.entries())
-                );
-                return newConversations;
-            });
-
-            // Call the callback if provided
-            options.onNewMessage?.(message, conversationId);
-        },
-        [getCurrentUserId, activeConversationId, options]
-    );
-
-    const handleTypingIndicator = useCallback((typing: any) => {
-        const { user_id, is_typing } = typing;
-
-        setConversations((prev) => {
-            const newConversations = new Map(prev);
-            const conversation = newConversations.get(user_id);
-
-            if (conversation) {
-                conversation.isTyping = is_typing;
-                newConversations.set(user_id, conversation);
-            }
-
-            return newConversations;
-        });
-
-        // Clear typing indicator after a timeout
-        if (is_typing) {
-            const timeouts = typingTimeoutRef.current;
-            const existingTimeout = timeouts.get(user_id);
-
-            if (existingTimeout) {
-                clearTimeout(existingTimeout);
-            }
-
-            const newTimeout = setTimeout(() => {
-                setConversations((prev) => {
-                    const newConversations = new Map(prev);
-                    const conversation = newConversations.get(user_id);
-
-                    if (conversation) {
-                        conversation.isTyping = false;
-                        newConversations.set(user_id, conversation);
-                    }
-
-                    return newConversations;
-                });
-                timeouts.delete(user_id);
-            }, 3000); // Clear typing indicator after 3 seconds
-
-            timeouts.set(user_id, newTimeout);
-        }
-    }, []);
-
-    const { isConnected, sendMessage, sendTypingIndicator, connect } =
-        useWebSocket({
-            autoConnect: options.autoConnect,
-            onMessage: handleIncomingMessage,
-            onTyping: handleTypingIndicator,
-        });
-
-    const sendChatMessage = useCallback(
-        (recipientId: string, content: string) => {
-            const currentUserId = getCurrentUserId();
-            if (!currentUserId || !isConnected) return null;
-
-            const tempMessage: Message = {
-                id: `temp_${Date.now()}_${Math.random()
-                    .toString(36)
-                    .substr(2, 9)}`,
-                senderId: currentUserId,
-                content,
-                timestamp: new Date().toISOString(),
-                isCurrentUser: true,
-                status: "sending",
-            };
-
-            // Optimistically add message to conversation
-            setConversations((prev) => {
-                const newConversations = new Map(prev);
-                const conversation = newConversations.get(recipientId) || {
-                    participantId: recipientId,
-                    messages: [],
-                    unreadCount: 0,
-                    isTyping: false,
+                // Create message object
+                const message: Message = {
+                    id: chatMessage.id,
+                    senderId: chatMessage.sender_id,
+                    content: chatMessage.content,
+                    timestamp: chatMessage.timestamp,
+                    isCurrentUser,
+                    status: "delivered", // All messages from server are delivered
                 };
 
-                conversation.messages.push(tempMessage);
-                conversation.lastMessage = tempMessage;
-                newConversations.set(recipientId, conversation);
+                // Create new conversation object with new messages array to ensure React detects changes
+                const updatedConversation = {
+                    ...conversation,
+                    messages: [...conversation.messages, message],
+                    lastMessage: message,
+                    unreadCount:
+                        !isCurrentUser && activeThreadId !== threadId
+                            ? conversation.unreadCount + 1
+                            : conversation.unreadCount,
+                };
+
+                // Update conversation in map
+                newConversations.set(threadId, updatedConversation);
+
+                // Notify callback
+                setTimeout(() => {
+                    options.onNewMessage?.(message, threadId);
+                }, 0);
 
                 return newConversations;
             });
-
-            // Send via WebSocket
-            sendMessage(recipientId, content);
-
-            // Update message status to 'sent' after a short delay (simulate network)
-            setTimeout(() => {
-                setConversations((prev) => {
-                    const newConversations = new Map(prev);
-                    const conversation = newConversations.get(recipientId);
-
-                    if (conversation) {
-                        const messageIndex = conversation.messages.findIndex(
-                            (m) => m.id === tempMessage.id
-                        );
-                        if (messageIndex !== -1) {
-                            conversation.messages[messageIndex].status = "sent";
-                            newConversations.set(recipientId, conversation);
-                        }
-                    }
-
-                    return newConversations;
-                });
-            }, 500);
-
-            return tempMessage;
         },
-        [getCurrentUserId, isConnected, sendMessage]
+        [getCurrentUserId, activeThreadId, options]
     );
 
+    const handleTypingIndicator = useCallback(
+        (typing: TypingIndicator) => {
+            const threadId = typing.thread_id;
+            const userId = typing.user_id;
+            const currentUserId = getCurrentUserId();
+
+            if (!threadId || !userId || userId === currentUserId) {
+                return; // Ignore own typing or invalid data
+            }
+
+            setConversations((prev) => {
+                const newConversations = new Map(prev);
+
+                // Get or create conversation
+                let conversation = newConversations.get(threadId);
+                if (!conversation) {
+                    conversation = {
+                        threadId,
+                        messages: [],
+                        unreadCount: 0,
+                        typingUsers: new Set(),
+                    };
+                }
+
+                // Update typing users
+                if (typing.is_typing) {
+                    conversation.typingUsers.add(userId);
+
+                    // Set timeout to auto-remove typing indicator
+                    const threadTimeouts =
+                        typingTimeoutsRef.current.get(threadId) || new Map();
+                    const existingTimeout = threadTimeouts.get(userId);
+                    if (existingTimeout) {
+                        clearTimeout(existingTimeout);
+                    }
+
+                    const timeout = setTimeout(() => {
+                        setConversations((current) => {
+                            const updated = new Map(current);
+                            const conv = updated.get(threadId);
+                            if (conv) {
+                                conv.typingUsers.delete(userId);
+                                updated.set(threadId, conv);
+                            }
+                            return updated;
+                        });
+
+                        const timeouts =
+                            typingTimeoutsRef.current.get(threadId);
+                        if (timeouts) {
+                            timeouts.delete(userId);
+                            if (timeouts.size === 0) {
+                                typingTimeoutsRef.current.delete(threadId);
+                            }
+                        }
+                    }, 3000);
+
+                    threadTimeouts.set(userId, timeout);
+                    typingTimeoutsRef.current.set(threadId, threadTimeouts);
+                } else {
+                    conversation.typingUsers.delete(userId);
+
+                    // Clear timeout if exists
+                    const threadTimeouts =
+                        typingTimeoutsRef.current.get(threadId);
+                    if (threadTimeouts) {
+                        const timeout = threadTimeouts.get(userId);
+                        if (timeout) {
+                            clearTimeout(timeout);
+                            threadTimeouts.delete(userId);
+                            if (threadTimeouts.size === 0) {
+                                typingTimeoutsRef.current.delete(threadId);
+                            }
+                        }
+                    }
+                }
+
+                newConversations.set(threadId, conversation);
+
+                // Notify callback
+                setTimeout(() => {
+                    options.onTypingChange?.(
+                        threadId,
+                        conversation.typingUsers.size > 0,
+                        Array.from(conversation.typingUsers)
+                    );
+                }, 0);
+
+                return newConversations;
+            });
+        },
+        [getCurrentUserId, options]
+    );
+
+    // WebSocket connection - always auto-connect when hook is used
+    const {
+        isConnected,
+        sendMessage: wsSendMessage,
+        sendTypingIndicator,
+        connect,
+    } = useWebSocket({
+        autoConnect: true, // Always connect when useChat is used
+        onMessage: handleIncomingMessage,
+        onTyping: handleTypingIndicator,
+    });
+
+    // Send message - simplified without optimistic updates for now
+    const sendMessage = useCallback(
+        (threadId: string, content: string) => {
+            const currentUserId = getCurrentUserId();
+
+            if (!currentUserId || !isConnected || !content.trim()) {
+                return null;
+            }
+
+            // Send directly via WebSocket - server will echo back
+            wsSendMessage(threadId, content.trim());
+
+            // Return a temporary ID for the caller (though not used for optimistic updates)
+            return `sent-${Date.now()}`;
+        },
+        [getCurrentUserId, isConnected, wsSendMessage]
+    );
+
+    // Typing indicators
     const startTyping = useCallback(
-        (recipientId: string) => {
+        (threadId: string) => {
             if (isConnected) {
-                sendTypingIndicator(recipientId, true);
+                sendTypingIndicator(threadId, true);
             }
         },
         [isConnected, sendTypingIndicator]
     );
 
     const stopTyping = useCallback(
-        (recipientId: string) => {
+        (threadId: string) => {
             if (isConnected) {
-                sendTypingIndicator(recipientId, false);
+                sendTypingIndicator(threadId, false);
             }
         },
         [isConnected, sendTypingIndicator]
     );
 
-    const markConversationAsRead = useCallback((conversationId: string) => {
-        setConversations((prev) => {
-            const newConversations = new Map(prev);
-            const conversation = newConversations.get(conversationId);
-
-            if (conversation && conversation.unreadCount > 0) {
-                conversation.unreadCount = 0;
-                newConversations.set(conversationId, conversation);
-            }
-
-            return newConversations;
-        });
-    }, []);
-
+    // Conversation management
     const getConversation = useCallback(
-        (participantId: string): Conversation | undefined => {
-            return conversations.get(participantId);
+        (threadId: string): Conversation | undefined => {
+            return conversations.get(threadId);
         },
         [conversations]
     );
@@ -268,46 +280,65 @@ export function useChat(options: UseChatOptions = {}) {
         });
     }, [conversations]);
 
+    const markConversationAsRead = useCallback((threadId: string) => {
+        setConversations((prev) => {
+            const conversation = prev.get(threadId);
+            if (conversation && conversation.unreadCount > 0) {
+                const newConversations = new Map(prev);
+                const updatedConversation = { ...conversation, unreadCount: 0 };
+                newConversations.set(threadId, updatedConversation);
+                return newConversations;
+            }
+            return prev;
+        });
+    }, []);
+
     const getTotalUnreadCount = useCallback((): number => {
         return Array.from(conversations.values()).reduce(
             (total, conv) => total + conv.unreadCount,
             0
         );
     }, [conversations]);
-
-    // Set current user ID when it changes
     const setCurrentUserId = useCallback((userId: string | null) => {
         currentUserIdRef.current = userId;
     }, []);
 
-    // Mark active conversation as read when it changes
+    // Auto-mark active conversation as read
     useEffect(() => {
-        if (activeConversationId) {
-            markConversationAsRead(activeConversationId);
+        if (activeThreadId) {
+            markConversationAsRead(activeThreadId);
         }
-    }, [activeConversationId, markConversationAsRead]);
+    }, [activeThreadId, markConversationAsRead]);
 
-    // Clean up typing timeouts on unmount
+    // Cleanup typing timeouts on unmount
     useEffect(() => {
         return () => {
-            const timeouts = typingTimeoutRef.current;
-            timeouts.forEach((timeout) => clearTimeout(timeout));
-            timeouts.clear();
+            typingTimeoutsRef.current.forEach((threadTimeouts) => {
+                threadTimeouts.forEach((timeout) => clearTimeout(timeout));
+            });
+            typingTimeoutsRef.current.clear();
         };
     }, []);
 
     return {
+        // State
         conversations: getAllConversations(),
-        activeConversationId,
-        setActiveConversationId,
-        sendMessage: sendChatMessage,
+        activeThreadId,
+        isConnected,
+
+        // Actions
+        setActiveThreadId,
+        sendMessage,
         startTyping,
         stopTyping,
         markConversationAsRead,
+        setCurrentUserId,
+
+        // Getters
         getConversation,
         getTotalUnreadCount,
-        setCurrentUserId,
-        isConnected,
+
+        // Connection
         connect,
     };
 }
