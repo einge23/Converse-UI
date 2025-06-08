@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Search, Users, MessageCircle, Check, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -14,9 +14,7 @@ import {
     useFriends,
 } from "@/hooks/useFriendships";
 import { useUser } from "@/hooks/useUser";
-import { useChat } from "@/hooks/useChat";
 import { type FriendRequestWithUser } from "@/api/friends";
-import { toast } from "sonner";
 import { useNavigate } from "react-router";
 
 interface FriendsListProps {}
@@ -33,40 +31,6 @@ export function FriendsList({}: FriendsListProps) {
     const acceptFriendRequest = useAcceptFriendRequest();
     const declineFriendRequest = useDeclineFriendRequest();
     const createFriendRequest = useCreateFriendRequest();
-
-    // Debug logging
-    console.log("Friends data:", friends);
-    console.log("Number of friends:", friends.length);
-    if (friends.length > 0) {
-        console.log("First friend object:", friends[0]);
-        console.log("First friend display_name:", friends[0]?.display_name);
-    }
-    const {
-        conversations,
-        getTotalUnreadCount,
-        setCurrentUserId,
-        isConnected,
-    } = useChat({
-        onNewMessage: (message, conversationId) => {
-            // Show notification for new messages
-            const friend = friends.find((f) => f.user_id === conversationId);
-            if (friend && !message.isCurrentUser) {
-                toast.info(`New message from ${getDisplayName(friend)}`, {
-                    description:
-                        message.content.length > 50
-                            ? message.content.substring(0, 50) + "..."
-                            : message.content,
-                });
-            }
-        },
-    });
-
-    // Set current user ID when component mounts
-    useEffect(() => {
-        if (user?.user_id) {
-            setCurrentUserId(user.user_id);
-        }
-    }, [user?.user_id, setCurrentUserId]);
 
     // Filter friend requests to show only pending ones where current user is recipient
     const pendingFriendRequests = friendRequests.filter(
@@ -119,16 +83,6 @@ export function FriendsList({}: FriendsListProps) {
         const dmId = friend?.dm_thread_id || friendId;
         navigate(`/app/friends/${dmId}`);
     }; // Get unread count for a specific friend
-    const getUnreadCount = (friendId: string) => {
-        const conversation = conversations.find((c) => c.threadId === friendId);
-        return conversation?.unreadCount || 0;
-    };
-
-    // Get last message for a friend
-    const getLastMessage = (friendId: string) => {
-        const conversation = conversations.find((c) => c.threadId === friendId);
-        return conversation?.lastMessage;
-    };
 
     // Format last message timestamp
     const formatLastMessageTime = (timestamp: string) => {
@@ -184,22 +138,12 @@ export function FriendsList({}: FriendsListProps) {
         return name.charAt(0).toUpperCase();
     };
 
-    const totalUnreadCount = getTotalUnreadCount();
-
     return (
         <div className="flex h-full flex-col">
             <header className="flex h-12 items-center border-b px-4">
                 <div className="flex items-center gap-2">
                     <Users className="h-5 w-5" />
                     <h1 className="font-semibold">Friends</h1>
-                    {totalUnreadCount > 0 && (
-                        <div className="bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full">
-                            {totalUnreadCount}
-                        </div>
-                    )}
-                    {!isConnected && (
-                        <div className="text-xs text-amber-500">Offline</div>
-                    )}
                 </div>
                 <Tabs
                     defaultValue="online"
@@ -431,13 +375,6 @@ export function FriendsList({}: FriendsListProps) {
                                 ) : (
                                     // Render regular friends with message info
                                     filteredFriends.map((friend, index) => {
-                                        const unreadCount = getUnreadCount(
-                                            friend.user_id
-                                        );
-                                        const lastMessage = getLastMessage(
-                                            friend.user_id
-                                        );
-
                                         return (
                                             <motion.div
                                                 key={friend.user_id}
@@ -486,63 +423,20 @@ export function FriendsList({}: FriendsListProps) {
                                                         <div className="flex items-center justify-between">
                                                             <p
                                                                 className={cn(
-                                                                    "font-medium truncate",
-                                                                    unreadCount >
-                                                                        0 &&
-                                                                        "text-foreground"
+                                                                    "font-medium truncate"
                                                                 )}
                                                             >
                                                                 {getDisplayName(
                                                                     friend
                                                                 )}
                                                             </p>
-                                                            {lastMessage && (
-                                                                <span className="text-xs text-muted-foreground ml-2 shrink-0">
-                                                                    {formatLastMessageTime(
-                                                                        lastMessage.timestamp
-                                                                    )}
-                                                                </span>
-                                                            )}
                                                         </div>
                                                         <div className="flex items-center justify-between">
                                                             <p
                                                                 className={cn(
-                                                                    "text-xs text-muted-foreground truncate",
-                                                                    lastMessage
-                                                                        ? "max-w-[150px]"
-                                                                        : ""
+                                                                    "text-xs text-muted-foreground truncate"
                                                                 )}
-                                                            >
-                                                                {lastMessage ? (
-                                                                    <span>
-                                                                        {lastMessage.isCurrentUser
-                                                                            ? "You: "
-                                                                            : ""}
-                                                                        {
-                                                                            lastMessage.content
-                                                                        }
-                                                                    </span>
-                                                                ) : friend.status ===
-                                                                  "offline" ? (
-                                                                    `Last online ${friend.last_active_at}`
-                                                                ) : (
-                                                                    `${friend.status
-                                                                        .charAt(
-                                                                            0
-                                                                        )
-                                                                        .toUpperCase()}${friend.status.slice(
-                                                                        1
-                                                                    )}`
-                                                                )}
-                                                            </p>
-                                                            {unreadCount >
-                                                                0 && (
-                                                                <div className="bg-primary text-primary-foreground text-xs px-2 py-0.5 rounded-full ml-2 shrink-0">
-                                                                    {
-                                                                        unreadCount
-                                                                    }
-                                                                </div>
-                                                            )}
+                                                            ></p>
                                                         </div>
                                                     </div>
                                                     <Button
