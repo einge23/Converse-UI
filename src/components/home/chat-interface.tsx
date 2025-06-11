@@ -19,6 +19,7 @@ import { useGetThreadMessages } from "@/hooks/useMessages";
 import { useUser } from "@/hooks/useUser";
 import type { PublicUser } from "@/api/friends";
 import type { Message } from "@/api/direct-messages";
+import { useWebSocket } from "@/hooks/useWebSocket";
 
 interface ChatInterfaceProps {
     threadId: string;
@@ -45,7 +46,59 @@ export function ChatInterface({
     const { user } = useUser();
     const [page, setPage] = useState<number>(1);
     const [allMessages, setAllMessages] = useState<Message[]>([]);
+    const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
     const [hasMore, setHasMore] = useState<boolean>(true);
+    const { sendMessage, sendTypingIndicator, isConnected } = useWebSocket({
+        onMessage: (message) => {
+            if (message.thread_id === threadId) {
+                const newMessage: Message = {
+                    message_id: message.id,
+                    thread_id: message.thread_id || threadId,
+                    sender_id: message.sender_id,
+                    content: message.content,
+                    created_at: message.timestamp,
+                    updated_at: message.timestamp,
+                    deleted_at: null,
+                    content_type: message.message_type || "text",
+                };
+
+                setRealtimeMessages((prev) => {
+                    if (
+                        prev.some((m) => m.message_id === newMessage.message_id)
+                    ) {
+                        return prev;
+                    }
+                    return [...prev, newMessage];
+                });
+            }
+        },
+        onTyping: (typing) => {
+            // Handle typing indicators from other users
+            if (
+                typing.user_id !== user?.user_id &&
+                typing.thread_id === threadId
+            ) {
+                setFriendIsTyping(typing.is_typing);
+
+                // Clear existing timeout
+                if (friendTypingTimeoutRef.current) {
+                    clearTimeout(friendTypingTimeoutRef.current);
+                }
+
+                // Auto-clear typing indicator after 3 seconds of no updates
+                if (typing.is_typing) {
+                    friendTypingTimeoutRef.current = setTimeout(() => {
+                        setFriendIsTyping(false);
+                    }, 3000);
+                }
+            }
+        },
+    });
+
+    // Debug log for connection state
+    useEffect(() => {
+        console.log("ChatInterface - isConnected:", isConnected);
+    }, [isConnected]);
 
     const {
         data: prevMessages,
@@ -56,43 +109,54 @@ export function ChatInterface({
 
     const [newMessage, setNewMessage] = useState("");
     const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
-    const [isConnected, setIsConnected] = useState(true);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
+    const [friendIsTyping, setFriendIsTyping] = useState(false);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const friendTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    if (prevMessages && !isLoadingMore) {
-        if (page === 1) {
-            if (
-                allMessages.length === 0 ||
-                JSON.stringify(allMessages) !==
-                    JSON.stringify(prevMessages.messages)
-            ) {
-                setAllMessages(prevMessages.messages);
-                setHasMore(prevMessages.has_more);
-            }
-        } else {
-            const newMessages = prevMessages.messages;
-            const existingIds = new Set(allMessages.map((m) => m.message_id));
-            const uniqueNewMessages = newMessages.filter(
-                (m) => !existingIds.has(m.message_id)
-            );
+    // Handle message updates in useEffect to avoid hook order issues
+    useEffect(() => {
+        if (prevMessages && !isLoadingMore) {
+            if (page === 1) {
+                if (
+                    allMessages.length === 0 ||
+                    JSON.stringify(allMessages) !==
+                        JSON.stringify(prevMessages.messages)
+                ) {
+                    setAllMessages(prevMessages.messages);
+                    setHasMore(prevMessages.has_more);
+                }
+            } else {
+                const newMessages = prevMessages.messages;
+                const existingIds = new Set(
+                    allMessages.map((m) => m.message_id)
+                );
+                const uniqueNewMessages = newMessages.filter(
+                    (m) => !existingIds.has(m.message_id)
+                );
 
-            if (uniqueNewMessages.length > 0) {
-                setAllMessages((prev) => [...uniqueNewMessages, ...prev]);
-                setHasMore(prevMessages.has_more);
+                if (uniqueNewMessages.length > 0) {
+                    setAllMessages((prev) => [...uniqueNewMessages, ...prev]);
+                    setHasMore(prevMessages.has_more);
+                }
             }
         }
-    }
+    }, [prevMessages, isLoadingMore, page, allMessages]);
 
+    // Handle thread changes in useEffect
     const prevThreadId = useRef(threadId);
-    if (prevThreadId.current !== threadId) {
-        prevThreadId.current = threadId;
-        setPage(1);
-        setAllMessages([]);
-        setHasMore(true);
-        setIsLoadingMore(false);
-    }
+    useEffect(() => {
+        if (prevThreadId.current !== threadId) {
+            prevThreadId.current = threadId;
+            setPage(1);
+            setAllMessages([]);
+            setHasMore(true);
+            setIsLoadingMore(false);
+        }
+    }, [threadId]);
 
     const handleLoadMoreMessages = useCallback(async () => {
         if (!hasMore || isLoading || isFetching) return;
@@ -140,28 +204,47 @@ export function ChatInterface({
             return () => observer.disconnect();
         },
         [hasMore, isLoadingMore, isFetching, handleLoadMoreMessages]
-    );
-
-    const currentPrompt = useState(() => {
-        let index = 0;
-        setInterval(() => {
-            setCurrentPromptIndex((index + 1) % typingPrompts.length);
-            index = (index + 1) % typingPrompts.length;
+    ); // Remove the currentPrompt setup since it's not being used
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setCurrentPromptIndex((prev) => (prev + 1) % typingPrompts.length);
         }, 3000);
-        return typingPrompts[0];
-    })[0];
-
-    if (isLoading && page === 1) {
-        return <div>Loading</div>;
-    }
+        return () => clearInterval(interval);
+    }, []);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setNewMessage(e.target.value);
+
+        if (!isTyping && e.target.value.trim()) {
+            setIsTyping(true);
+            sendTypingIndicator(threadId, true);
+
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
+
+            typingTimeoutRef.current = setTimeout(() => {
+                if (isTyping) {
+                    setIsTyping(false);
+                    sendTypingIndicator(threadId, false);
+                }
+            }, 1000);
+        }
     };
 
     const handleSendMessage = () => {
-        // TODO: Implement send message logic
-        console.log("Sending message:", newMessage);
+        if (!user || !newMessage.trim()) return;
+
+        if (isTyping) {
+            setIsTyping(false);
+            sendTypingIndicator(threadId, false);
+        }
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        sendMessage(threadId, newMessage.trim());
         setNewMessage("");
     };
 
@@ -193,6 +276,30 @@ export function ChatInterface({
         }
     };
 
+    // Combine messages from API and real-time
+    const combinedMessages = [...allMessages, ...realtimeMessages].sort(
+        (a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+
+    // Clear real-time messages when thread changes
+    useEffect(() => {
+        setRealtimeMessages([]);
+    }, [threadId]); // Cleanup typing timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
+            if (friendTypingTimeoutRef.current) {
+                clearTimeout(friendTypingTimeoutRef.current);
+            }
+            if (isTyping) {
+                sendTypingIndicator(threadId, false);
+            }
+        };
+    }, [threadId, isTyping, sendTypingIndicator]);
+
     // Helper function to get display name, fallback to username if display_name is empty
     const getDisplayName = (friend: any) => {
         return friend.display_name?.trim() || friend.username;
@@ -204,7 +311,7 @@ export function ChatInterface({
         return name.charAt(0).toUpperCase();
     };
 
-    const reversedMessages = [...allMessages].reverse();
+    const reversedMessages = [...combinedMessages].reverse();
 
     return (
         <div className="flex h-full flex-col">
@@ -252,8 +359,9 @@ export function ChatInterface({
                 ref={messagesContainerRef}
                 className="custom-scrollbar flex-1 overflow-y-auto p-4 flex flex-col-reverse"
             >
+                {" "}
                 <div className="flex flex-col-reverse gap-1">
-                    {allMessages.length === 0 && !newMessage.trim() && (
+                    {combinedMessages.length === 0 && !newMessage.trim() && (
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -281,19 +389,21 @@ export function ChatInterface({
                                 </AnimatePresence>
                             </div>
                         </motion.div>
-                    )}
-
+                    )}{" "}
                     {reversedMessages.map((message, index) => {
-                        const originalIndex = allMessages.length - 1 - index;
+                        const originalIndex =
+                            combinedMessages.length - 1 - index;
                         const isCurrentUser =
                             message.sender_id === user?.user_id;
                         const isFirstInGroup =
                             originalIndex === 0 ||
-                            allMessages[originalIndex - 1].sender_id !==
+                            combinedMessages[originalIndex - 1].sender_id !==
                                 message.sender_id ||
                             new Date(message.created_at).getTime() -
                                 new Date(
-                                    allMessages[originalIndex - 1].created_at
+                                    combinedMessages[
+                                        originalIndex - 1
+                                    ].created_at
                                 ).getTime() >
                                 300000; // 5 minutes
 
@@ -381,8 +491,53 @@ export function ChatInterface({
                                 Loading more messages...
                             </div>
                         </motion.div>
-                    )}
+                    )}{" "}
                     <div ref={messagesEndRef} />
+                    {/* Typing indicator */}
+                    {friendIsTyping && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="flex items-start gap-3 w-full max-w-2xl"
+                        >
+                            <Avatar className="h-8 w-8 shrink-0">
+                                <AvatarImage
+                                    src={
+                                        friend.avatar_url || "/placeholder.svg"
+                                    }
+                                    alt={getDisplayName(friend)}
+                                />
+                                <AvatarFallback>
+                                    {getAvatarFallback(friend)}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div className="flex flex-col">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <span className="font-medium">
+                                        {getDisplayName(friend)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                    <span>typing</span>
+                                    <div className="flex gap-1">
+                                        <div
+                                            className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                            style={{ animationDelay: "0ms" }}
+                                        />
+                                        <div
+                                            className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                            style={{ animationDelay: "150ms" }}
+                                        />
+                                        <div
+                                            className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                            style={{ animationDelay: "300ms" }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
                 </div>
             </div>
             <Separator />

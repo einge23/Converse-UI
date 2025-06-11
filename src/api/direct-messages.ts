@@ -25,7 +25,7 @@ export type Message = {
     metadata?: object;
     created_at: string;
     updated_at: string;
-    deleted_at: string;
+    deleted_at: string | null;
 };
 
 export async function getThreadMessages(
@@ -47,10 +47,14 @@ export async function getThreadMessages(
         }
     );
 
-    if (response.status === 200 || response.status === 201) {
+    if (response.status === 200) {
         return response.data;
     } else {
-        console.error("Failed to get thread messages:", response.data);
-        throw new Error("Failed to get thread messages");
+        console.error(
+            "Failed to get thread messages:",
+            response.status,
+            response.data
+        );
+        throw new Error(`Failed to get thread messages: ${response.status}`);
     }
 }

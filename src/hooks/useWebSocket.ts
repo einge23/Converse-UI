@@ -27,21 +27,26 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     optionsRef.current = options;
     const connect = useCallback(async () => {
         if (!isAuthenticated || !user) {
+            console.log("Cannot connect: not authenticated or no user");
             return;
         }
 
         const token = Cookies.get("token");
         if (!token) {
+            console.log("Cannot connect: no token");
             return;
         }
 
         setIsConnecting(true);
         setConnectionError(null);
+        console.log("Attempting to connect to WebSocket...");
 
         try {
             await wsService.connect(token, user.user_id);
+            console.log("WebSocket connected successfully");
             setIsConnected(true);
         } catch (error) {
+            console.error("WebSocket connection failed:", error);
             setConnectionError("Failed to connect to chat server");
             toast.error("Failed to connect to chat server");
         } finally {
@@ -165,20 +170,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         if (!isAuthenticated && isConnected) {
             disconnect();
         }
-    }, [isAuthenticated, isConnected, disconnect]);
-
-    // Update connection status based on WebSocket service
+    }, [isAuthenticated, isConnected, disconnect]); // Update connection status based on WebSocket service
     useEffect(() => {
-        if (!isConnected) return;
-
         const checkConnection = () => {
             const wsConnected = wsService.isConnected();
-            if (!wsConnected && isConnected) {
-                setIsConnected(false);
+            if (wsConnected !== isConnected) {
+                setIsConnected(wsConnected);
             }
         };
 
-        const interval = setInterval(checkConnection, 5000); // Check every 5 seconds instead of 1
+        // Check immediately and then every 1 second
+        checkConnection();
+        const interval = setInterval(checkConnection, 1000);
         return () => clearInterval(interval);
     }, [isConnected]);
 
