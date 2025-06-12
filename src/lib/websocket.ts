@@ -231,8 +231,9 @@ export class WebSocketService {
 
         this.ws.send(JSON.stringify(message));
     }
-
     private handleMessage(message: any): void {
+        console.log("Received WebSocket message:", message);
+
         // Handle direct backend messages (not wrapped in WSMessage format)
         if (message.type === "new_message") {
             // Ensure we have a proper message_id from the server
@@ -262,13 +263,16 @@ export class WebSocketService {
                 is_typing: message.type === "typing",
             };
 
-            const messageType =
-                message.type === "typing"
-                    ? MessageType.TYPING
-                    : MessageType.STOP_TYPING;
-            const handlers = this.eventHandlers.get(messageType);
-            if (handlers) {
-                handlers.forEach((handler) => handler(typingData));
+            const typingHandlers = this.eventHandlers.get(MessageType.TYPING);
+            const stopTypingHandlers = this.eventHandlers.get(
+                MessageType.STOP_TYPING
+            );
+
+            if (typingHandlers) {
+                typingHandlers.forEach((handler) => handler(typingData));
+            }
+            if (stopTypingHandlers) {
+                stopTypingHandlers.forEach((handler) => handler(typingData));
             }
         } else if (message.type === "error") {
             const handlers = this.eventHandlers.get(MessageType.ERROR);
@@ -278,7 +282,6 @@ export class WebSocketService {
                 );
             }
         } else {
-            // Handle legacy WSMessage format if needed
             if (message.type && message.data) {
                 const handlers = this.eventHandlers.get(message.type);
                 if (handlers) {
