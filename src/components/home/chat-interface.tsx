@@ -38,18 +38,6 @@ const typingPrompts = [
     "Share what you're up to",
 ];
 
-// Helper debounce function
-function debounce<T extends (...args: any[]) => any>(
-    func: T,
-    wait: number
-): (...args: Parameters<T>) => void {
-    let timeout: NodeJS.Timeout | null = null;
-    return (...args: Parameters<T>) => {
-        if (timeout) clearTimeout(timeout);
-        timeout = setTimeout(() => func(...args), wait);
-    };
-}
-
 export function ChatInterface({
     friend,
     threadId,
@@ -61,8 +49,59 @@ export function ChatInterface({
     const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
     const [hasMore, setHasMore] = useState<boolean>(true);
     const { sendMessage, sendTypingIndicator, isConnected } = useWebSocket({
-        onMessage: (message) => {
-            if (message.thread_id === threadId) {
+        onMessage: (message: any) => {
+            console.log("WebSocket message received:", message);
+
+            if (message.type === "typing" || message.type === "stop_typing") {
+                console.log("Typing message detected:", {
+                    type: message.type,
+                    sender_id: message.sender_id,
+                    user_id: user?.user_id,
+                    thread_id: message.thread_id,
+                    current_thread_id: threadId,
+                    is_different_user: message.sender_id !== user?.user_id,
+                    is_same_thread: message.thread_id === threadId,
+                });
+
+                if (
+                    message.sender_id !== user?.user_id &&
+                    message.thread_id === threadId
+                ) {
+                    const isTyping = message.type === "typing";
+                    console.log(`Setting friendIsTyping to ${isTyping}`);
+                    setFriendIsTyping(isTyping);
+
+                    if (friendTypingTimeoutRef.current) {
+                        clearTimeout(friendTypingTimeoutRef.current);
+                    }
+
+                    if (isTyping) {
+                        friendTypingTimeoutRef.current = setTimeout(() => {
+                            console.log(
+                                "Auto-clearing friendIsTyping after 3 seconds"
+                            );
+                            setFriendIsTyping(false);
+                        }, 3000);
+                    }
+                }
+                return;
+            }
+
+            if (
+                message.thread_id === threadId &&
+                message.content &&
+                !message.type
+            ) {
+                if (message.sender_id !== user?.user_id) {
+                    console.log(
+                        "Clearing typing indicator because user sent a message"
+                    );
+                    setFriendIsTyping(false);
+                    if (friendTypingTimeoutRef.current) {
+                        clearTimeout(friendTypingTimeoutRef.current);
+                    }
+                }
+
                 const newMessage: Message = {
                     message_id: message.id,
                     thread_id: message.thread_id || threadId,
@@ -85,11 +124,15 @@ export function ChatInterface({
             }
         },
         onTyping: (typing) => {
-            // Handle typing indicators from other users
+            console.log("onTyping called:", typing);
+
             if (
                 typing.user_id !== user?.user_id &&
                 typing.thread_id === threadId
             ) {
+                console.log(
+                    `Setting friendIsTyping to ${typing.is_typing} via onTyping`
+                );
                 setFriendIsTyping(typing.is_typing);
 
                 // Clear existing timeout
@@ -100,6 +143,9 @@ export function ChatInterface({
                 // Auto-clear typing indicator after 3 seconds of no updates
                 if (typing.is_typing) {
                     friendTypingTimeoutRef.current = setTimeout(() => {
+                        console.log(
+                            "Auto-clearing friendIsTyping after 3 seconds via onTyping"
+                        );
                         setFriendIsTyping(false);
                     }, 3000);
                 }
@@ -123,6 +169,11 @@ export function ChatInterface({
     const [friendIsTyping, setFriendIsTyping] = useState(false);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const friendTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Debug log for friendIsTyping state changes
+    useEffect(() => {
+        console.log("friendIsTyping state changed:", friendIsTyping);
+    }, [friendIsTyping]);
 
     const displayName = useMemo(() => {
         return friend.display_name?.trim() || friend.username;
@@ -225,12 +276,37 @@ export function ChatInterface({
         }, 3000);
         return () => clearInterval(interval);
     }, []);
-
     const handleInputChange = useCallback(
         (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-            setNewMessage(e.target.value);
+            const value = e.target.value;
+            setNewMessage(value);
+
+            // Clear existing timeout
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
+
+            const hasContent = value.trim().length > 0;
+
+            // Only update typing state if it actually changed
+            if (hasContent && !isTyping) {
+                setIsTyping(true);
+                sendTypingIndicator(threadId, true);
+            } else if (!hasContent && isTyping) {
+                setIsTyping(false);
+                sendTypingIndicator(threadId, false);
+                return;
+            }
+
+            // Set timeout to stop typing indicator after 2 seconds of no typing
+            if (hasContent) {
+                typingTimeoutRef.current = setTimeout(() => {
+                    setIsTyping(false);
+                    sendTypingIndicator(threadId, false);
+                }, 2000);
+            }
         },
-        []
+        [isTyping, threadId, sendTypingIndicator]
     );
 
     const handleSendMessage = () => {
@@ -395,7 +471,6 @@ export function ChatInterface({
                 ref={messagesContainerRef}
                 className="custom-scrollbar flex-1 overflow-y-auto p-4 flex flex-col-reverse"
             >
-                {" "}
                 <div className="flex flex-col-reverse gap-1">
                     {combinedMessages.length === 0 && !newMessage.trim() && (
                         <EmptyStateComponent
@@ -405,9 +480,7 @@ export function ChatInterface({
                             typingPrompts={typingPrompts}
                         />
                     )}
-
                     {messageElements}
-
                     {hasMore && allMessages.length > 0 && (
                         <div
                             ref={loadingMoreTriggerRef}
@@ -428,52 +501,49 @@ export function ChatInterface({
                         </motion.div>
                     )}
                     <div ref={messagesEndRef} />
-                    {friendIsTyping && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            className="flex items-start gap-3 w-full max-w-2xl"
-                        >
-                            <Avatar className="h-8 w-8 shrink-0">
-                                <AvatarImage
-                                    src={
-                                        friend.avatar_url || "/placeholder.svg"
-                                    }
-                                    alt={getDisplayName(friend)}
-                                />
-                                <AvatarFallback>
-                                    {getAvatarFallback(friend)}
-                                </AvatarFallback>
-                            </Avatar>
-                            <div className="flex flex-col">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <span className="font-medium">
-                                        {getDisplayName(friend)}
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                    <span>typing</span>
-                                    <div className="flex gap-1">
-                                        <div
-                                            className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
-                                            style={{ animationDelay: "0ms" }}
-                                        />
-                                        <div
-                                            className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
-                                            style={{ animationDelay: "150ms" }}
-                                        />
-                                        <div
-                                            className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
-                                            style={{ animationDelay: "300ms" }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
                 </div>
-            </div>{" "}
+            </div>
+
+            {/* Typing indicator above the input */}
+            {friendIsTyping && (
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="px-3 pb-2 sm:px-4"
+                >
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Avatar className="h-5 w-5 sm:h-6 sm:w-6 shrink-0">
+                            <AvatarImage
+                                src={friend.avatar_url || "/placeholder.svg"}
+                                alt={displayName}
+                            />
+                            <AvatarFallback className="text-xs">
+                                {avatarFallback}
+                            </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium text-xs sm:text-sm truncate">
+                            {displayName}
+                        </span>
+                        <span className="text-xs sm:text-sm">is typing</span>
+                        <div className="flex gap-0.5 sm:gap-1 ml-auto">
+                            <div
+                                className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                style={{ animationDelay: "0ms" }}
+                            />
+                            <div
+                                className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                style={{ animationDelay: "150ms" }}
+                            />
+                            <div
+                                className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                style={{ animationDelay: "300ms" }}
+                            />
+                        </div>
+                    </div>
+                </motion.div>
+            )}
+
             <Separator />
             <div className="p-4">
                 <div className="flex items-center gap-2 rounded-lg bg-muted p-2">
