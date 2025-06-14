@@ -170,11 +170,6 @@ export function ChatInterface({
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const friendTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Debug log for friendIsTyping state changes
-    useEffect(() => {
-        console.log("friendIsTyping state changed:", friendIsTyping);
-    }, [friendIsTyping]);
-
     const displayName = useMemo(() => {
         return friend.display_name?.trim() || friend.username;
     }, [friend.display_name, friend.username]);
@@ -504,7 +499,6 @@ export function ChatInterface({
                 </div>
             </div>
 
-            {/* Typing indicator above the input */}
             {friendIsTyping && (
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -636,9 +630,8 @@ const MessageComponent = React.memo(
         formatTimestamp: (timestamp: string) => string;
     }) => {
         const timestamp = formatTimestamp(message.created_at);
-
         return (
-            <div className="flex items-start gap-3 w-full max-w-2xl">
+            <div className="flex items-start gap-3 w-full max-w-2xl p-2 rounded-lg hover:bg-muted/50 transition-colors duration-200 group">
                 {isFirstInGroup && (
                     <Avatar className="h-8 w-8 shrink-0">
                         <AvatarImage
