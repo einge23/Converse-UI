@@ -18,6 +18,7 @@ export type LoginRequest = LoginWithEmail | LoginWithUsername;
 
 export type LoginResponse = {
     token: string;
+    refresh_token: string;
     expires_at: string;
     session_id: string;
 };
@@ -40,6 +41,7 @@ export const login = async (
         );
         if (response.status === 200) {
             Cookies.set("token", response.data.token);
+            Cookies.set("refresh_token", response.data.refresh_token);
             Cookies.set("sessionId", response.data.session_id);
             return {
                 success: true,
@@ -95,11 +97,13 @@ export const logout = async (): Promise<LogoutResult> => {
         const sessionId = Cookies.get("sessionId");
         const token = Cookies.get("token");
         const deviceId = Cookies.get("deviceId");
+        const refresh_token = Cookies.get("refresh_token");
 
         // If we don't have either token or sessionId, consider it already logged out
-        if (!sessionId || !token) {
+        if (!sessionId || !token || !refresh_token) {
             // Clear any remaining cookies just in case
             Cookies.remove("token");
+            Cookies.remove("refresh_token");
             Cookies.remove("sessionId");
             return {
                 success: true,
@@ -123,6 +127,7 @@ export const logout = async (): Promise<LogoutResult> => {
             // Clear cookies regardless of response status
             Cookies.remove("token");
             Cookies.remove("sessionId");
+            Cookies.remove("refresh_token");
 
             if (response.status === 200) {
                 return {
@@ -141,6 +146,7 @@ export const logout = async (): Promise<LogoutResult> => {
             // Clear cookies even if the request fails
             Cookies.remove("token");
             Cookies.remove("sessionId");
+            Cookies.remove("refresh_token");
 
             const status = error.response?.status || 500;
             const message =
@@ -168,6 +174,7 @@ export const logout = async (): Promise<LogoutResult> => {
         // Ensure cookies are cleared even if something unexpected happens
         Cookies.remove("token");
         Cookies.remove("sessionId");
+        Cookies.remove("refresh_token");
 
         return {
             success: false,
@@ -201,6 +208,7 @@ export type RegisterResult = {
     status: number;
     message?: string;
     token?: string;
+    refresh_token?: string;
     session_id?: string;
 };
 
@@ -217,12 +225,14 @@ export const register = async (
             if (response.data.token && response.data.session_id) {
                 Cookies.set("token", response.data.token);
                 Cookies.set("sessionId", response.data.session_id);
+                Cookies.set("refresh_token", response.data.refresh_token);
 
                 return {
                     success: true,
                     status: 201,
                     message: "Registration successful",
                     token: response.data.token,
+                    refresh_token: response.data.refresh_token,
                     session_id: response.data.session_id,
                 };
             }
@@ -273,6 +283,45 @@ export const getCurrentUser = async (): Promise<User | null> => {
         return null;
     } catch (error: any) {
         console.error("Failed to fetch current user:", error);
+        return null;
+    }
+};
+
+export const refreshToken = async (): Promise<string | null> => {
+    const refreshToken = Cookies.get("refresh_token");
+
+    if (!refreshToken) {
+        Cookies.remove("token");
+        Cookies.remove("sessionId");
+        Cookies.remove("refresh_token");
+        window.location.href = "/login";
+        return null;
+    }
+
+    try {
+        const response = await authApiBase().post("/api/v1/auth/refresh", {
+            refresh_token: refreshToken,
+        });
+
+        if (response.status === 200) {
+            const data = response.data;
+            Cookies.set("token", response.data.token);
+            Cookies.set("sessionId", response.data.session_id);
+            Cookies.set("refresh_token", response.data.refresh_token);
+            return data.token as string;
+        } else {
+            Cookies.remove("token");
+            Cookies.remove("sessionId");
+            Cookies.remove("refresh_token");
+            window.location.href = "/login";
+            return null;
+        }
+    } catch (error: any) {
+        console.error("Token refresh error:", error);
+        Cookies.remove("token");
+        Cookies.remove("sessionId");
+        Cookies.remove("refresh_token");
+        window.location.href = "/login";
         return null;
     }
 };
