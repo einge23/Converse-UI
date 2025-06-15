@@ -1,5 +1,6 @@
 import axios from "axios";
 import Cookies from "js-cookie";
+import { refreshToken } from "./auth";
 
 const generateDeviceId = () => {
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
@@ -37,7 +38,7 @@ export const authApiBase = () => {
     const token = Cookies.get("token");
     const sessionId = Cookies.get("sessionId");
     const deviceId = getOrCreateDeviceId();
-    return axios.create({
+    const instance = axios.create({
         baseURL: API_BASE_URL,
         headers: {
             "Content-Type": "application/json",
@@ -46,4 +47,16 @@ export const authApiBase = () => {
             "X-Device-ID": deviceId,
         },
     });
+
+    instance.interceptors.response.use(
+        (response) => response,
+        (error) => {
+            if (error.response?.status === 401) {
+                refreshToken();
+            }
+            return Promise.reject(error);
+        }
+    );
+
+    return instance;
 };

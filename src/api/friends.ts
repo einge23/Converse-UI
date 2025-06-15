@@ -15,6 +15,7 @@ export type PublicUser = {
     created_at: string;
     updated_at: string;
     deleted_at: string | null;
+    dm_thread_id: string | null;
 };
 
 export type FriendRequest = {
@@ -99,6 +100,8 @@ export async function getFriends(): Promise<PublicUser[]> {
     const response = await authApiBase().get("/api/v1/friends/");
 
     if (response.status === 200) {
+        console.log("Friends API response:", response.data);
+        console.log("First friend:", response.data[0]);
         return response.data;
     } else {
         console.error("Failed to get friends:", response.data);

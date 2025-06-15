@@ -18,6 +18,13 @@ function App() {
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/signup" element={<SignupPage />} />
+                        {/* Main app routes with new URL structure */}
+                        <Route path="/app" element={<HomePage />} />
+                        <Route path="/app/friends" element={<HomePage />} />
+                        <Route path="/app/friends/:dmThreadId" element={<HomePage />} />
+                        <Route path="/app/:serverId" element={<HomePage />} />
+                        <Route path="/app/:serverId/:channelId" element={<HomePage />} />
+                        {/* Legacy redirect */}
                         <Route path="/home" element={<HomePage />} />
                     </Routes>
                     <Toaster />

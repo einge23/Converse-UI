@@ -15,16 +15,16 @@ import {
 } from "@/hooks/useFriendships";
 import { useUser } from "@/hooks/useUser";
 import { type FriendRequestWithUser } from "@/api/friends";
+import { useNavigate } from "react-router";
 
-interface FriendsListProps {
-    onSelectFriend: (friendId: string) => void;
-}
+interface FriendsListProps {}
 
-export function FriendsList({ onSelectFriend }: FriendsListProps) {
+export function FriendsList({}: FriendsListProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState("online");
     const [friendUsername, setFriendUsername] = useState("");
     const { user } = useUser();
+    const navigate = useNavigate();
 
     const friends = useFriends().data || [];
     const friendRequests = useFriendRequests().data || [];
@@ -40,9 +40,11 @@ export function FriendsList({ onSelectFriend }: FriendsListProps) {
     );
 
     const filteredFriends = friends.filter((friend) => {
-        const matchesSearch = friend.username
-            .toLowerCase()
-            .includes(searchQuery.toLowerCase());
+        const matchesSearch =
+            friend.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            friend.display_name
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase());
         const matchesTab =
             activeTab === "all" ||
             (activeTab === "online" && friend.status === "online") ||
@@ -75,12 +77,37 @@ export function FriendsList({ onSelectFriend }: FriendsListProps) {
         setFriendUsername("");
     };
 
+    const handleSelectFriend = (friendId: string) => {
+        // Navigate to DM using the friend's dm_thread_id or user_id
+        const friend = friends.find((f) => f.user_id === friendId);
+        const dmId = friend?.dm_thread_id || friendId;
+        navigate(`/app/friends/${dmId}`);
+    }; // Get unread count for a specific friend
+
+    // Format last message timestamp
+    const formatLastMessageTime = (timestamp: string) => {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffInMinutes = (now.getTime() - date.getTime()) / (1000 * 60);
+
+        if (diffInMinutes < 1) {
+            return "now";
+        } else if (diffInMinutes < 60) {
+            return `${Math.floor(diffInMinutes)}m`;
+        } else if (diffInMinutes < 1440) {
+            // 24 hours
+            return `${Math.floor(diffInMinutes / 60)}h`;
+        } else {
+            return date.toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+            });
+        }
+    };
+
     // Determine what to show based on active tab
     const showPendingRequests = activeTab === "pending";
     const showAddFriend = activeTab === "add";
-    // const itemsToShow = showPendingRequests
-    //     ? filteredPendingRequests
-    //     : filteredFriends;
     const itemCount = showPendingRequests
         ? filteredPendingRequests.length
         : filteredFriends.length;
@@ -100,6 +127,17 @@ export function FriendsList({ onSelectFriend }: FriendsListProps) {
         }
     };
 
+    // Helper function to get display name, fallback to username if display_name is empty
+    const getDisplayName = (friend: any) => {
+        return friend.display_name?.trim() || friend.username;
+    };
+
+    // Helper function to get avatar fallback
+    const getAvatarFallback = (friend: any) => {
+        const name = getDisplayName(friend);
+        return name.charAt(0).toUpperCase();
+    };
+
     return (
         <div className="flex h-full flex-col">
             <header className="flex h-12 items-center border-b px-4">
@@ -115,7 +153,14 @@ export function FriendsList({ onSelectFriend }: FriendsListProps) {
                     <TabsList>
                         <TabsTrigger value="online">Online</TabsTrigger>
                         <TabsTrigger value="all">All</TabsTrigger>
-                        <TabsTrigger value="pending">Pending</TabsTrigger>
+                        <TabsTrigger value="pending" className="relative">
+                            Pending
+                            {pendingFriendRequests.length > 0 && (
+                                <div className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                                    {pendingFriendRequests.length}
+                                </div>
+                            )}
+                        </TabsTrigger>
                         <TabsTrigger value="add">Add Friend</TabsTrigger>
                     </TabsList>
                 </Tabs>
@@ -328,85 +373,83 @@ export function FriendsList({ onSelectFriend }: FriendsListProps) {
                                         )
                                     )
                                 ) : (
-                                    // Render regular friends (existing code)
-                                    filteredFriends.map((friend, index) => (
-                                        <motion.div
-                                            key={friend.user_id}
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{
-                                                duration: 0.2,
-                                                delay: index * 0.05,
-                                            }}
-                                        >
-                                            <button
-                                                className="group flex w-full items-center gap-3 rounded-md p-2 hover:bg-muted"
-                                                onClick={() =>
-                                                    onSelectFriend(
-                                                        friend.user_id
-                                                    )
-                                                }
+                                    // Render regular friends with message info
+                                    filteredFriends.map((friend, index) => {
+                                        return (
+                                            <motion.div
+                                                key={friend.user_id}
+                                                initial={{ opacity: 0, y: 10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{
+                                                    duration: 0.2,
+                                                    delay: index * 0.05,
+                                                }}
                                             >
-                                                <div className="relative">
-                                                    <Avatar>
-                                                        <AvatarImage
-                                                            src={
-                                                                friend.avatar_url ||
-                                                                "/placeholder.svg"
-                                                            }
-                                                            alt={
-                                                                friend.username
-                                                            }
-                                                        />
-                                                        <AvatarFallback>
-                                                            {friend.username.charAt(
-                                                                0
-                                                            )}
-                                                        </AvatarFallback>
-                                                    </Avatar>
-                                                    <div
-                                                        className={cn(
-                                                            "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
-                                                            friend.status ===
-                                                                "online" &&
-                                                                "bg-emerald-500",
-                                                            friend.status ===
-                                                                "away" &&
-                                                                "bg-amber-500",
-                                                            friend.status ===
-                                                                "do_not_disturb" &&
-                                                                "bg-red-500",
-                                                            friend.status ===
-                                                                "offline" &&
-                                                                "bg-gray-500"
-                                                        )}
-                                                    />
-                                                </div>
-                                                <div className="flex-1 text-left">
-                                                    <p className="font-medium">
-                                                        {friend.username}
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {friend.status ===
-                                                        "offline"
-                                                            ? `Last online ${friend.last_active_at}`
-                                                            : `${friend.status
-                                                                  .charAt(0)
-                                                                  .toUpperCase()}${friend.status.slice(
-                                                                  1
-                                                              )}`}
-                                                    </p>
-                                                </div>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+                                                <button
+                                                    className="group flex w-full items-center gap-3 rounded-md p-2 hover:bg-muted"
+                                                    onClick={() =>
+                                                        handleSelectFriend(
+                                                            friend.user_id
+                                                        )
+                                                    }
                                                 >
-                                                    <MessageCircle className="h-4 w-4" />
-                                                </Button>
-                                            </button>
-                                        </motion.div>
-                                    ))
+                                                    <div className="relative">
+                                                        <Avatar>
+                                                            <AvatarImage
+                                                                src={
+                                                                    friend.avatar_url ||
+                                                                    "/placeholder.svg"
+                                                                }
+                                                                alt={getDisplayName(
+                                                                    friend
+                                                                )}
+                                                            />
+                                                            <AvatarFallback>
+                                                                {getAvatarFallback(
+                                                                    friend
+                                                                )}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                        <div
+                                                            className={cn(
+                                                                "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
+                                                                getStatusColor(
+                                                                    friend.status
+                                                                )
+                                                            )}
+                                                        />
+                                                    </div>
+                                                    <div className="flex-1 text-left min-w-0">
+                                                        <div className="flex items-center justify-between">
+                                                            <p
+                                                                className={cn(
+                                                                    "font-medium truncate"
+                                                                )}
+                                                            >
+                                                                {getDisplayName(
+                                                                    friend
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center justify-between">
+                                                            <p
+                                                                className={cn(
+                                                                    "text-xs text-muted-foreground truncate"
+                                                                )}
+                                                            ></p>
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 shrink-0"
+                                                    >
+                                                        <MessageCircle className="h-4 w-4" />
+                                                    </Button>
+                                                </button>
+                                            </motion.div>
+                                        );
+                                    })
                                 )
                             ) : (
                                 <div className="flex flex-col items-center justify-center py-12 text-center">
