@@ -5,6 +5,10 @@ export const MessageType = {
     USER_JOINED: "user_joined",
     USER_LEFT: "user_left",
     ERROR: "error",
+    WEBRTC_OFFER: "webrtc_offer",
+    WEBRTC_ANSWER: "webrtc_answer",
+    WEBRTC_ICE: "webrtc_ice",
+    WEBRTC_HANGUP: "webrtc_hangup",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -16,6 +20,60 @@ export interface WSMessage {
     id?: string;
 }
 
+export interface WebRTCMessageData {
+    target_user_id: string;
+    session_id: string;
+    sdp?: RTCSessionDescriptionInit;
+    ice_candidate?: RTCIceCandidateInit;
+    reason?: string;
+}
+
+export interface WebRTCOfferData {
+    type: "webrtc_offer";
+    sender_id: string;
+    webrtc: {
+        target_user_id: string;
+        session_id: string;
+        sdp: RTCSessionDescriptionInit;
+    };
+}
+
+export interface WebRTCAnswerData {
+    type: "webrtc_answer";
+    sender_id: string;
+    webrtc: {
+        target_user_id: string;
+        session_id: string;
+        sdp: RTCSessionDescriptionInit;
+    };
+}
+
+export interface WebRTCICEData {
+    type: "webrtc_ice";
+    sender_id: string;
+    webrtc: {
+        target_user_id: string;
+        session_id: string;
+        ice_candidate: RTCIceCandidateInit;
+    };
+}
+
+export interface WebRTCHangupData {
+    type: "webrtc_hangup";
+    sender_id: string;
+    webrtc: {
+        target_user_id: string;
+        session_id: string;
+        reason?: string;
+    };
+}
+
+export type WebRTCSignalingMessage =
+    | WebRTCOfferData
+    | WebRTCAnswerData
+    | WebRTCICEData
+    | WebRTCHangupData;
+
 // Updated to match backend structure
 export interface IncomingMessage {
     type: string;
@@ -23,6 +81,7 @@ export interface IncomingMessage {
     thread_id?: string;
     content: string;
     content_type?: string;
+    webrtc?: WebRTCMessageData;
 }
 
 export interface OutgoingMessage {
@@ -35,6 +94,7 @@ export interface OutgoingMessage {
     content_type: string;
     created_at: string;
     error?: string;
+    webrtc?: WebRTCMessageData;
 }
 
 // Legacy interface for backward compatibility
@@ -203,6 +263,94 @@ export class WebSocketService {
         }
     }
 
+    sendWebRTCOffer(
+        targetUserId: string,
+        sessionId: string,
+        sdp: RTCSessionDescriptionInit
+    ): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        const message: IncomingMessage = {
+            type: MessageType.WEBRTC_OFFER,
+            content: "",
+            webrtc: {
+                target_user_id: targetUserId,
+                session_id: sessionId,
+                sdp: sdp,
+            },
+        };
+
+        this.ws.send(JSON.stringify(message));
+    }
+
+    sendWebRTCAnswer(
+        targetUserId: string,
+        sessionId: string,
+        sdp: RTCSessionDescriptionInit
+    ): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        const message: IncomingMessage = {
+            type: MessageType.WEBRTC_ANSWER,
+            content: "",
+            webrtc: {
+                target_user_id: targetUserId,
+                session_id: sessionId,
+                sdp: sdp,
+            },
+        };
+
+        this.ws.send(JSON.stringify(message));
+    }
+
+    sendWebRTCICE(
+        targetUserId: string,
+        sessionId: string,
+        iceCandidate: RTCIceCandidateInit
+    ): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        const message: IncomingMessage = {
+            type: MessageType.WEBRTC_ICE,
+            content: "",
+            webrtc: {
+                target_user_id: targetUserId,
+                session_id: sessionId,
+                ice_candidate: iceCandidate,
+            },
+        };
+
+        this.ws.send(JSON.stringify(message));
+    }
+
+    sendWebRTCHangup(
+        targetUserId: string,
+        sessionId: string,
+        reason?: string
+    ): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        const message: IncomingMessage = {
+            type: MessageType.WEBRTC_HANGUP,
+            content: "",
+            webrtc: {
+                target_user_id: targetUserId,
+                session_id: sessionId,
+                reason: reason || "",
+            },
+        };
+
+        this.ws.send(JSON.stringify(message));
+    }
+
     sendMessage(threadId: string, content: string): void {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             return;
@@ -273,6 +421,18 @@ export class WebSocketService {
             }
             if (stopTypingHandlers) {
                 stopTypingHandlers.forEach((handler) => handler(typingData));
+            }
+        } else if (
+            message.type === "webrtc_offer" ||
+            message.type === "webrtc_answer" ||
+            message.type === "webrtc_ice" ||
+            message.type === "webrtc_hangup"
+        ) {
+            const handlers = this.eventHandlers.get(
+                message.type as MessageType
+            );
+            if (handlers) {
+                handlers.forEach((handler) => handler(message));
             }
         } else if (message.type === "error") {
             const handlers = this.eventHandlers.get(MessageType.ERROR);
