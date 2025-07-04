@@ -1,61 +1,7 @@
-// import { GradientButton } from "@/components/ui/gradient-button";
-// import { useEffect, useRef, useState } from "react";
-// import { toast } from "sonner";
-
 import type { PublicUser } from "@/api/friends";
 import { useFriends } from "@/hooks/useFriendships";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useRef, useState } from "react";
-
-// export default function VideoPlayTest() {
-//     const videoRef = useRef<HTMLVideoElement>(null);
-//     const audioRef = useRef<HTMLAudioElement>(null);
-
-//     const playVideoFromCamera = async () => {
-//         try {
-//             const constraints = { video: true, audio: true };
-//             const stream = await navigator.mediaDevices.getUserMedia(
-//                 constraints
-//             );
-
-//             const audioTracks = stream.getAudioTracks();
-
-//             if (videoRef.current) {
-//                 videoRef.current.srcObject = stream;
-//                 await videoRef.current.play();
-//             }
-
-//             if (audioRef.current && audioTracks.length > 0) {
-//                 const audioStream = new MediaStream(audioTracks);
-//                 audioRef.current.srcObject = audioStream;
-//                 await audioRef.current.play();
-//             }
-//         } catch (error) {
-//             console.error("Camera error:", error);
-//             toast.error("Error opening video");
-//         }
-//     };
-
-//     return (
-//         <div>
-//             <GradientButton
-//                 className="flex flex-col justify-center"
-//                 onClick={playVideoFromCamera}
-//             >
-//                 Play Video From Camera
-//             </GradientButton>
-//             <video
-//                 ref={videoRef}
-//                 id="localVideo"
-//                 autoPlay
-//                 playsInline
-//                 muted
-//                 className="w-[400px] h-[300px] -scale-x-100"
-//             />
-//             <audio ref={audioRef} autoPlay />
-//         </div>
-//     );
-// }
 
 export default function VideoPlayTest() {
     const { data: friends } = useFriends();
@@ -71,7 +17,16 @@ export default function VideoPlayTest() {
     const sessionId = useRef(crypto.randomUUID());
 
     const initializePeerConnection = (targetId: string) => {
-        const peer = new RTCPeerConnection();
+        const peer = new RTCPeerConnection({
+            iceServers: [
+                {
+                    urls: [
+                        "stun:stun.l.google.com:19302",
+                        "stun:stun1.l.google.com:19302",
+                    ],
+                },
+            ],
+        });
 
         peer.onicecandidate = (event) => {
             if (event.candidate) {

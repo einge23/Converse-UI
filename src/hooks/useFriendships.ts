@@ -41,8 +41,8 @@ export const useFriendRequests = () => {
         queryKey: ["friendRequests"],
         queryFn: getUserFriendRequests,
         enabled: isAuthenticated, // Only fetch when user is authenticated
-        staleTime: 1000 * 60 * 5, // 5 minutes
-        refetchInterval: 1000 * 30, // Refetch every 30 seconds
+        staleTime: Infinity,
+        refetchInterval: 1000 * 60 * 2,
     });
 };
 
@@ -53,8 +53,8 @@ export const useFriends = () => {
         queryKey: ["friends"],
         queryFn: getFriends,
         enabled: isAuthenticated,
-        staleTime: 1000 * 60 * 5,
-        refetchInterval: 1000 * 30,
+        staleTime: Infinity,
+        refetchInterval: 1000 * 60 * 2,
     });
 };
 
