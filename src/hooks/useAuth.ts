@@ -19,7 +19,7 @@ export const useLogin = () => {
             if (result.success) {
                 // Clear cache and navigate - UserProvider will handle the rest
                 queryClient.clear();
-                navigate("/home");
+                navigate("/app/");
                 toast.success("Login successful");
             } else {
                 toast.error(result.message || "Login failed");
@@ -63,7 +63,7 @@ export const useRegister = () => {
                 if (result.token && result.session_id) {
                     // Auto-login: clear cache and navigate - UserProvider will fetch fresh data
                     queryClient.clear();
-                    navigate("/home");
+                    navigate("/app/");
                     toast.success("Registration successful");
                 } else {
                     // Manual login required

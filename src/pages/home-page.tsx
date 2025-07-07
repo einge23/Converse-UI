@@ -2,30 +2,12 @@ import { ChannelSidebar } from "@/components/home/channel-sidebar";
 import { ChatInterface } from "@/components/home/chat-interface";
 import { FriendsList } from "@/components/home/friends-list";
 import { ServerSidebar } from "@/components/home/server-sidebar";
-import { IncomingCall } from "@/components/home/incoming-call";
 import { useFriends } from "@/hooks/useFriendships";
-import { useWebSocket } from "@/hooks/useWebSocket";
-import type { WebRTCOfferData } from "@/lib/websocket";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 export default function HomePage() {
-    const [incomingOffer, setIncomingOffer] = useState<WebRTCOfferData | null>(
-        null
-    );
-
-    const {
-        connect,
-        connectionError,
-        isConnected,
-        isConnecting,
-        disconnect,
-        sendWebRTCAnswer,
-        sendWebRTCHangup,
-    } = useWebSocket({
-        onWebRTCOffer: (offer) => setIncomingOffer(offer),
-    });
     const { serverId, channelId, dmThreadId } = useParams();
     const navigate = useNavigate();
     const { data: friends = [] } = useFriends();
@@ -56,50 +38,6 @@ export default function HomePage() {
         }
     };
 
-    const handleAccept = useCallback(
-        async (offer: WebRTCOfferData) => {
-            // Navigate both users to a unique call room using session_id
-            navigate(`/app/call/${offer.webrtc.session_id}`);
-            // Send WebRTC answer (dummy SDP for now, replace with real SDP in actual implementation)
-            await sendWebRTCAnswer(
-                offer.sender_id,
-                offer.webrtc.session_id,
-                offer.webrtc.sdp // In real use, replace with local SDP answer
-            );
-            setIncomingOffer(null);
-        },
-        [navigate, sendWebRTCAnswer]
-    );
-
-    const handleDecline = useCallback(
-        (offer: WebRTCOfferData) => {
-            sendWebRTCHangup(offer.sender_id, offer.webrtc.session_id, "declined");
-            setIncomingOffer(null);
-        },
-        [sendWebRTCHangup]
-    );
-
-    useEffect(() => {
-        if (!isConnected && !isConnecting) {
-            connect();
-        }
-    }, [connect, isConnected, isConnecting]);
-
-    useEffect(() => {
-        if (connectionError) {
-            toast.error("Error connecting to chats");
-            console.error("WebSocket connection error:", connectionError);
-        }
-    }, [connectionError]);
-
-    useEffect(() => {
-        return () => {
-            if (isConnected) {
-                disconnect();
-            }
-        };
-    }, [disconnect, isConnected]);
-
     // Default redirect - if no route specified, go to friends
     useEffect(() => {
         if (!serverId && !dmThreadId && window.location.pathname === "/app") {
@@ -109,18 +47,6 @@ export default function HomePage() {
 
     return (
         <div className="flex h-screen overflow-hidden">
-            {/* Incoming call popup */}
-            {incomingOffer && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="bg-white rounded shadow-lg p-6">
-                        <IncomingCall
-                            offer={incomingOffer}
-                            onAccept={handleAccept}
-                            onDecline={handleDecline}
-                        />
-                    </div>
-                </div>
-            )}
             <ServerSidebar
                 selectedServer={selectedServer}
                 onServerSelect={handleServerSelect}

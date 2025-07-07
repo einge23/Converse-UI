@@ -19,13 +19,22 @@ import { useGetThreadMessages } from "@/hooks/useMessages";
 import { useUser } from "@/hooks/useUser";
 import type { PublicUser } from "@/api/friends";
 import type { Message } from "@/api/direct-messages";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useSocketEmit, useSocketEvent } from "@/hooks/useSocket";
 
 interface ChatInterfaceProps {
     threadId: string;
     friend: PublicUser;
     onBack: () => void;
 }
+
+export type MessagePayload = {
+    message_id: string;
+    room_id?: string;
+    thread_id?: string;
+    content_type: string;
+    content: string;
+    metadata?: object;
+};
 
 const typingPrompts = [
     "Say hello! 👋",
@@ -48,110 +57,6 @@ export function ChatInterface({
     const [allMessages, setAllMessages] = useState<Message[]>([]);
     const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
     const [hasMore, setHasMore] = useState<boolean>(true);
-    const { sendMessage, sendTypingIndicator, isConnected } = useWebSocket({
-        onMessage: (message: any) => {
-            console.log("WebSocket message received:", message);
-
-            if (message.type === "typing" || message.type === "stop_typing") {
-                console.log("Typing message detected:", {
-                    type: message.type,
-                    sender_id: message.sender_id,
-                    user_id: user?.user_id,
-                    thread_id: message.thread_id,
-                    current_thread_id: threadId,
-                    is_different_user: message.sender_id !== user?.user_id,
-                    is_same_thread: message.thread_id === threadId,
-                });
-
-                if (
-                    message.sender_id !== user?.user_id &&
-                    message.thread_id === threadId
-                ) {
-                    const isTyping = message.type === "typing";
-                    console.log(`Setting friendIsTyping to ${isTyping}`);
-                    setFriendIsTyping(isTyping);
-
-                    if (friendTypingTimeoutRef.current) {
-                        clearTimeout(friendTypingTimeoutRef.current);
-                    }
-
-                    if (isTyping) {
-                        friendTypingTimeoutRef.current = setTimeout(() => {
-                            console.log(
-                                "Auto-clearing friendIsTyping after 3 seconds"
-                            );
-                            setFriendIsTyping(false);
-                        }, 3000);
-                    }
-                }
-                return;
-            }
-
-            if (
-                message.thread_id === threadId &&
-                message.content &&
-                !message.type
-            ) {
-                if (message.sender_id !== user?.user_id) {
-                    console.log(
-                        "Clearing typing indicator because user sent a message"
-                    );
-                    setFriendIsTyping(false);
-                    if (friendTypingTimeoutRef.current) {
-                        clearTimeout(friendTypingTimeoutRef.current);
-                    }
-                }
-
-                const newMessage: Message = {
-                    message_id: message.id,
-                    thread_id: message.thread_id || threadId,
-                    sender_id: message.sender_id,
-                    content: message.content,
-                    created_at: message.timestamp,
-                    updated_at: message.timestamp,
-                    deleted_at: null,
-                    content_type: message.message_type || "text",
-                };
-
-                setRealtimeMessages((prev) => {
-                    if (
-                        prev.some((m) => m.message_id === newMessage.message_id)
-                    ) {
-                        return prev;
-                    }
-                    return [...prev, newMessage];
-                });
-            }
-        },
-        onTyping: (typing) => {
-            console.log("onTyping called:", typing);
-
-            if (
-                typing.user_id !== user?.user_id &&
-                typing.thread_id === threadId
-            ) {
-                console.log(
-                    `Setting friendIsTyping to ${typing.is_typing} via onTyping`
-                );
-                setFriendIsTyping(typing.is_typing);
-
-                // Clear existing timeout
-                if (friendTypingTimeoutRef.current) {
-                    clearTimeout(friendTypingTimeoutRef.current);
-                }
-
-                // Auto-clear typing indicator after 3 seconds of no updates
-                if (typing.is_typing) {
-                    friendTypingTimeoutRef.current = setTimeout(() => {
-                        console.log(
-                            "Auto-clearing friendIsTyping after 3 seconds via onTyping"
-                        );
-                        setFriendIsTyping(false);
-                    }, 3000);
-                }
-            }
-        },
-    });
 
     const {
         data: prevMessages,
@@ -160,6 +65,7 @@ export function ChatInterface({
         refetch,
     } = useGetThreadMessages(threadId, page);
 
+    const emit = useSocketEmit();
     const [newMessage, setNewMessage] = useState("");
     const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -169,6 +75,16 @@ export function ChatInterface({
     const [friendIsTyping, setFriendIsTyping] = useState(false);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const friendTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    useSocketEvent<Message>(
+        "dm:receive",
+        (message) => {
+            if (message.thread_id === threadId) {
+                setRealtimeMessages((prev) => [...prev, message]);
+            }
+        },
+        [threadId]
+    );
 
     const displayName = useMemo(() => {
         return friend.display_name?.trim() || friend.username;
@@ -276,20 +192,18 @@ export function ChatInterface({
             const value = e.target.value;
             setNewMessage(value);
 
-            // Clear existing timeout
             if (typingTimeoutRef.current) {
                 clearTimeout(typingTimeoutRef.current);
             }
 
             const hasContent = value.trim().length > 0;
 
-            // Only update typing state if it actually changed
             if (hasContent && !isTyping) {
                 setIsTyping(true);
-                sendTypingIndicator(threadId, true);
+                //sendTypingIndicator(threadId, true);
             } else if (!hasContent && isTyping) {
                 setIsTyping(false);
-                sendTypingIndicator(threadId, false);
+                //sendTypingIndicator(threadId, false);
                 return;
             }
 
@@ -297,33 +211,39 @@ export function ChatInterface({
             if (hasContent) {
                 typingTimeoutRef.current = setTimeout(() => {
                     setIsTyping(false);
-                    sendTypingIndicator(threadId, false);
+                    //sendTypingIndicator(threadId, false);
                 }, 2000);
             }
         },
-        [isTyping, threadId, sendTypingIndicator]
+        [isTyping, threadId /*sendTypingIndicator*/]
     );
 
     const handleSendMessage = () => {
         if (!user || !newMessage.trim()) return;
+        const message: MessagePayload = {
+            message_id: crypto.randomUUID(),
+            content: newMessage.trim(),
+            content_type: "text",
+            thread_id: threadId,
+        };
+
+        emit("dm:send", message);
 
         if (isTyping) {
             setIsTyping(false);
-            sendTypingIndicator(threadId, false);
         }
 
         if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
         }
 
-        sendMessage(threadId, newMessage.trim());
         setNewMessage("");
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (newMessage.trim() && isConnected) {
+            if (newMessage.trim() /*&& isConnected*/) {
                 handleSendMessage();
             }
         }
@@ -368,10 +288,10 @@ export function ChatInterface({
                 clearTimeout(friendTypingTimeoutRef.current);
             }
             if (isTyping) {
-                sendTypingIndicator(threadId, false);
+                //sendTypingIndicator(threadId, false);
             }
         };
-    }, [threadId, isTyping, sendTypingIndicator]);
+    }, [threadId, isTyping /*sendTypingIndicator*/]);
     const getDisplayName = (friend: any) => {
         return friend.display_name?.trim() || friend.username;
     };
@@ -545,23 +465,16 @@ export function ChatInterface({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                        disabled={!isConnected}
                     >
                         <Plus className="h-5 w-5" />
                     </Button>
                     <div className="relative flex-1">
                         <textarea
                             className="max-h-32 min-h-10 w-full resize-none bg-transparent p-2 text-sm focus:outline-none disabled:opacity-50"
-                            placeholder={
-                                !isConnected
-                                    ? "Connecting..."
-                                    : `Message ${displayName}...`
-                            }
                             rows={1}
                             value={newMessage}
                             onChange={handleInputChange}
                             onKeyDown={handleKeyDown}
-                            disabled={!isConnected}
                         />
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -569,7 +482,6 @@ export function ChatInterface({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            disabled={!isConnected}
                         >
                             <Gift className="h-5 w-5" />
                         </Button>
@@ -577,7 +489,6 @@ export function ChatInterface({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            disabled={!isConnected}
                         >
                             <Paperclip className="h-5 w-5" />
                         </Button>
@@ -585,7 +496,6 @@ export function ChatInterface({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            disabled={!isConnected}
                         >
                             <Smile className="h-5 w-5" />
                         </Button>
@@ -593,10 +503,9 @@ export function ChatInterface({
                             size="icon"
                             className={cn(
                                 "h-8 w-8",
-                                (!newMessage.trim() || !isConnected) &&
-                                    "opacity-50"
+                                !newMessage.trim() && "opacity-50"
                             )}
-                            disabled={!newMessage.trim() || !isConnected}
+                            disabled={!newMessage.trim()}
                             onClick={handleSendMessage}
                         >
                             <Send className="h-4 w-4" />

@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import HomePage from "./pages/home-page";
 import { UserProvider } from "./hooks/useUser";
-import VideoPlayTest from "./pages/video-play-test";
+import { SocketProvider } from "./contexts/socketContext";
 
 const queryClient = new QueryClient();
 
@@ -19,19 +19,35 @@ function App() {
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/signup" element={<SignupPage />} />
-                        <Route path="/app" element={<HomePage />} />
-                        <Route path="/app/friends" element={<HomePage />} />
                         <Route
-                            path="/app/friends/:dmThreadId"
-                            element={<HomePage />}
+                            path="/app/*"
+                            element={
+                                <SocketProvider>
+                                    <Routes>
+                                        <Route
+                                            path="/"
+                                            element={<HomePage />}
+                                        />
+                                        <Route
+                                            path="/friends"
+                                            element={<HomePage />}
+                                        />
+                                        <Route
+                                            path="/friends/:dmThreadId"
+                                            element={<HomePage />}
+                                        />
+                                        <Route
+                                            path="/:serverId"
+                                            element={<HomePage />}
+                                        />
+                                        <Route
+                                            path="/:serverId/:channelId"
+                                            element={<HomePage />}
+                                        />
+                                    </Routes>
+                                </SocketProvider>
+                            }
                         />
-                        <Route path="/app/:serverId" element={<HomePage />} />
-                        <Route
-                            path="/app/:serverId/:channelId"
-                            element={<HomePage />}
-                        />
-                        <Route path="/home" element={<HomePage />} />
-                        <Route path="/video-test" element={<VideoPlayTest />} />
                     </Routes>
                     <Toaster />
                 </BrowserRouter>
