@@ -80,10 +80,18 @@ export function ChatInterface({
         "dm:receive",
         (message) => {
             if (message.thread_id === threadId) {
-                setRealtimeMessages((prev) => [...prev, message]);
+                setRealtimeMessages((prev) => {
+                    const existingIds = new Set(
+                        [...allMessages, ...prev].map((m) => m.message_id)
+                    );
+                    if (existingIds.has(message.message_id)) {
+                        return prev;
+                    }
+                    return [...prev, message];
+                });
             }
         },
-        [threadId]
+        [threadId, allMessages]
     );
 
     const displayName = useMemo(() => {
@@ -250,7 +258,10 @@ export function ChatInterface({
     };
 
     const formatTimestamp = useCallback((timestamp: string) => {
-        const date = new Date(timestamp);
+        const utcTimestamp = timestamp.endsWith("Z")
+            ? timestamp
+            : timestamp + "Z";
+        const date = new Date(utcTimestamp);
         const now = new Date();
         const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
 
@@ -258,21 +269,41 @@ export function ChatInterface({
             return date.toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
+                hour12: true,
             });
         } else {
             return date.toLocaleDateString([], {
                 month: "short",
                 day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true,
             });
         }
     }, []);
 
     const combinedMessages = useMemo(() => {
-        return [...allMessages, ...realtimeMessages].sort(
-            (a, b) =>
-                new Date(a.created_at).getTime() -
-                new Date(b.created_at).getTime()
+        const allMsgs = [...allMessages, ...realtimeMessages];
+
+        // Remove duplicates based on message_id
+        const uniqueMessages = allMsgs.filter(
+            (message, index, arr) =>
+                arr.findIndex((m) => m.message_id === message.message_id) ===
+                index
         );
+
+        // Sort by timestamp (ensure consistent UTC parsing)
+        return uniqueMessages.sort((a, b) => {
+            const timestampA = a.created_at.endsWith("Z")
+                ? a.created_at
+                : a.created_at + "Z";
+            const timestampB = b.created_at.endsWith("Z")
+                ? b.created_at
+                : b.created_at + "Z";
+            const dateA = new Date(timestampA).getTime();
+            const dateB = new Date(timestampB).getTime();
+            return dateA - dateB;
+        });
     }, [allMessages, realtimeMessages]);
 
     useEffect(() => {
@@ -375,8 +406,10 @@ export function ChatInterface({
                         />
                     </div>
                     <div>
-                        <h2 className="font-semibold">{friend.display_name}</h2>
-                        <p className="text-xs text-muted-foreground">
+                        <h2 className="font-semibold text-base">
+                            {friend.username}
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
                             {friend.status}
                         </p>
                     </div>
@@ -407,10 +440,10 @@ export function ChatInterface({
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="flex justify-center py-4"
+                            className="flex justify-center py-6"
                         >
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                            <div className="flex items-center gap-3 text-base text-muted-foreground">
+                                <Loader2 className="h-5 w-5 animate-spin" />
                                 Loading more messages...
                             </div>
                         </motion.div>
@@ -427,7 +460,7 @@ export function ChatInterface({
                     className="px-3 pb-2 sm:px-4"
                 >
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Avatar className="h-5 w-5 sm:h-6 sm:w-6 shrink-0">
+                        <Avatar className="h-6 w-6 shrink-0">
                             <AvatarImage
                                 src={friend.avatar_url || "/placeholder.svg"}
                                 alt={displayName}
@@ -436,21 +469,21 @@ export function ChatInterface({
                                 {avatarFallback}
                             </AvatarFallback>
                         </Avatar>
-                        <span className="font-medium text-xs sm:text-sm truncate">
+                        <span className="font-medium text-sm truncate">
                             {displayName}
                         </span>
-                        <span className="text-xs sm:text-sm">is typing</span>
-                        <div className="flex gap-0.5 sm:gap-1 ml-auto">
+                        <span className="text-sm">is typing</span>
+                        <div className="flex gap-1 ml-auto">
                             <div
-                                className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce"
                                 style={{ animationDelay: "0ms" }}
                             />
                             <div
-                                className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce"
                                 style={{ animationDelay: "150ms" }}
                             />
                             <div
-                                className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce"
+                                className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce"
                                 style={{ animationDelay: "300ms" }}
                             />
                         </div>
@@ -470,7 +503,7 @@ export function ChatInterface({
                     </Button>
                     <div className="relative flex-1">
                         <textarea
-                            className="max-h-32 min-h-10 w-full resize-none bg-transparent p-2 text-sm focus:outline-none disabled:opacity-50"
+                            className="max-h-32 min-h-12 w-full resize-none bg-transparent p-3 text-base focus:outline-none disabled:opacity-50"
                             rows={1}
                             value={newMessage}
                             onChange={handleInputChange}
@@ -517,7 +550,6 @@ export function ChatInterface({
     );
 }
 
-// Memoized MessageComponent to prevent unnecessary re-renders
 const MessageComponent = React.memo(
     ({
         message,
@@ -540,9 +572,14 @@ const MessageComponent = React.memo(
     }) => {
         const timestamp = formatTimestamp(message.created_at);
         return (
-            <div className="flex items-start gap-3 w-full max-w-2xl p-2 rounded-lg hover:bg-muted/50 transition-colors duration-200 group">
+            <div
+                className={cn(
+                    "flex items-start gap-4 w-full rounded-lg hover:bg-muted/50 transition-colors duration-200 group",
+                    isFirstInGroup ? "px-4 pt-3 pb-1" : "px-4 py-1"
+                )}
+            >
                 {isFirstInGroup && (
-                    <Avatar className="h-8 w-8 shrink-0">
+                    <Avatar className="h-10 w-10 shrink-0">
                         <AvatarImage
                             src={
                                 isCurrentUser
@@ -551,7 +588,7 @@ const MessageComponent = React.memo(
                             }
                             alt={isCurrentUser ? "You" : displayName}
                         />
-                        <AvatarFallback>
+                        <AvatarFallback className="text-sm font-medium">
                             {isCurrentUser
                                 ? user?.display_name?.charAt(0) || "Y"
                                 : avatarFallback}
@@ -559,17 +596,20 @@ const MessageComponent = React.memo(
                     </Avatar>
                 )}
                 <div
-                    className={cn("flex flex-col", !isFirstInGroup && "ml-11")}
+                    className={cn(
+                        "flex flex-col flex-1",
+                        !isFirstInGroup && "ml-14"
+                    )}
                 >
                     {isFirstInGroup && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="font-medium">
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground mb-1">
+                            <span className="font-semibold">
                                 {isCurrentUser ? "You" : displayName}
                             </span>
                             <span>{timestamp}</span>
                         </div>
                     )}
-                    <div className="text-sm text-foreground">
+                    <div className="text-base text-foreground leading-tight">
                         {message.content}
                     </div>
                 </div>
@@ -578,7 +618,6 @@ const MessageComponent = React.memo(
     }
 );
 
-// Memoized EmptyStateComponent
 const EmptyStateComponent = React.memo(
     ({
         friend,
@@ -598,7 +637,7 @@ const EmptyStateComponent = React.memo(
         >
             <div className="text-6xl">{friend.avatar_url ? "" : "👋"}</div>
             <div>
-                <h3 className="text-lg font-semibold mb-2">
+                <h3 className="text-xl font-semibold mb-3">
                     Start a conversation with {displayName}
                 </h3>
                 <AnimatePresence mode="wait">
@@ -608,7 +647,7 @@ const EmptyStateComponent = React.memo(
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.3 }}
-                        className="text-sm text-muted-foreground"
+                        className="text-base text-muted-foreground"
                     >
                         {typingPrompts[currentPromptIndex]}
                     </motion.p>

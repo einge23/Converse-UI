@@ -3,6 +3,7 @@ import { ChatInterface } from "@/components/home/chat-interface";
 import { FriendsList } from "@/components/home/friends-list";
 import { ServerSidebar } from "@/components/home/server-sidebar";
 import { useFriends } from "@/hooks/useFriendships";
+import { useDMSubscription } from "@/hooks/useSocket";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -11,6 +12,37 @@ export default function HomePage() {
     const { serverId, channelId, dmThreadId } = useParams();
     const navigate = useNavigate();
     const { data: friends = [] } = useFriends();
+
+    const threadIds = friends
+        .map((friend) => friend.dm_thread_id)
+        .filter((id): id is string => Boolean(id));
+
+    const { onNewMessage } = useDMSubscription(threadIds);
+
+    useEffect(() => {
+        const unsubscribe = onNewMessage((message: any) => {
+            console.log("New message received:", message);
+            if (message.thread_id !== dmThreadId) {
+                const messageFriend = friends.find(
+                    (f) => f.dm_thread_id === message.thread_id
+                );
+                const senderName =
+                    messageFriend?.display_name ||
+                    messageFriend?.username ||
+                    "Unknown";
+                toast(`New message from ${senderName}`, {
+                    description: message.content,
+                    action: {
+                        label: "View",
+                        onClick: () =>
+                            navigate(`/app/friends/${message.thread_id}`),
+                    },
+                });
+            }
+        });
+
+        return unsubscribe;
+    }, [onNewMessage, dmThreadId, friends, navigate]);
 
     const friend = dmThreadId
         ? friends.find((f) => f.dm_thread_id === dmThreadId)
