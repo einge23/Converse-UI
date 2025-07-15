@@ -58,6 +58,27 @@ export const useFriends = () => {
     });
 };
 
+export const useUpdateFriendStatus = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({
+            userId,
+            status,
+        }: {
+            userId: string;
+            status: string;
+        }) => {
+            queryClient.setQueryData(["friends"], (old: any) => {
+                if (!old) return old;
+                return old.map((friend: any) =>
+                    friend.user_id === userId ? { ...friend, status } : friend
+                );
+            });
+            return Promise.resolve();
+        },
+    });
+};
 export const useAcceptFriendRequest = () => {
     const queryClient = useQueryClient();
 

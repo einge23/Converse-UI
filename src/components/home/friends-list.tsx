@@ -12,10 +12,12 @@ import {
     useDeclineFriendRequest,
     useCreateFriendRequest,
     useFriends,
+    useUpdateFriendStatus,
 } from "@/hooks/useFriendships";
 import { useUser } from "@/hooks/useUser";
 import { type FriendRequestWithUser } from "@/api/friends";
 import { useNavigate } from "react-router";
+import { useStatusSubscription } from "@/hooks/useSocket";
 
 interface FriendsListProps {}
 
@@ -31,8 +33,19 @@ export function FriendsList({}: FriendsListProps) {
     const acceptFriendRequest = useAcceptFriendRequest();
     const declineFriendRequest = useDeclineFriendRequest();
     const createFriendRequest = useCreateFriendRequest();
+    const updateFriendStatus = useUpdateFriendStatus();
 
-    // Filter friend requests to show only pending ones where current user is recipient
+    const { onStatusUpdate } = useStatusSubscription(
+        friends.map((f) => f.user_id)
+    );
+
+    onStatusUpdate((payload) => {
+        updateFriendStatus.mutate({
+            userId: payload.userId,
+            status: payload.status,
+        });
+    });
+
     const pendingFriendRequests = friendRequests.filter(
         (request: FriendRequestWithUser) =>
             request.status === "pending" &&
@@ -84,35 +97,12 @@ export function FriendsList({}: FriendsListProps) {
         navigate(`/app/friends/${dmId}`);
     }; // Get unread count for a specific friend
 
-    // Format last message timestamp
-    const formatLastMessageTime = (timestamp: string) => {
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diffInMinutes = (now.getTime() - date.getTime()) / (1000 * 60);
-
-        if (diffInMinutes < 1) {
-            return "now";
-        } else if (diffInMinutes < 60) {
-            return `${Math.floor(diffInMinutes)}m`;
-        } else if (diffInMinutes < 1440) {
-            // 24 hours
-            return `${Math.floor(diffInMinutes / 60)}h`;
-        } else {
-            return date.toLocaleDateString([], {
-                month: "short",
-                day: "numeric",
-            });
-        }
-    };
-
-    // Determine what to show based on active tab
     const showPendingRequests = activeTab === "pending";
     const showAddFriend = activeTab === "add";
     const itemCount = showPendingRequests
         ? filteredPendingRequests.length
         : filteredFriends.length;
 
-    // Helper function to get status indicator color
     const getStatusColor = (status: string) => {
         switch (status) {
             case "online":

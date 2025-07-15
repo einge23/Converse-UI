@@ -72,7 +72,7 @@ export function ChatInterface({
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
-    const [friendIsTyping, setFriendIsTyping] = useState(false);
+    const [friendIsTyping] = useState(false);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const friendTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 

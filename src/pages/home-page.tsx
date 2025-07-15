@@ -3,8 +3,8 @@ import { ChatInterface } from "@/components/home/chat-interface";
 import { FriendsList } from "@/components/home/friends-list";
 import { ServerSidebar } from "@/components/home/server-sidebar";
 import { useFriends } from "@/hooks/useFriendships";
-import { useDMSubscription } from "@/hooks/useSocket";
-import { useCallback, useEffect, useState } from "react";
+import { useAutoOnlineStatus, useDMSubscription } from "@/hooks/useSocket";
+import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -18,6 +18,7 @@ export default function HomePage() {
         .filter((id): id is string => Boolean(id));
 
     const { onNewMessage } = useDMSubscription(threadIds);
+    useAutoOnlineStatus();
 
     useEffect(() => {
         const unsubscribe = onNewMessage((message: any) => {
