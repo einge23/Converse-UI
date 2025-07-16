@@ -3,7 +3,8 @@ import { ChatInterface } from "@/components/home/chat-interface";
 import { FriendsList } from "@/components/home/friends-list";
 import { ServerSidebar } from "@/components/home/server-sidebar";
 import { useFriends } from "@/hooks/useFriendships";
-import { useAutoOnlineStatus, useDMSubscription } from "@/hooks/useSocket";
+import { useDMSubscription, useStatusSubscription } from "@/hooks/useSocket";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -11,14 +12,34 @@ import { toast } from "sonner";
 export default function HomePage() {
     const { serverId, channelId, dmThreadId } = useParams();
     const navigate = useNavigate();
-    const { data: friends = [] } = useFriends();
+    const { data: friends = [], isFetched } = useFriends();
+     const queryClient = useQueryClient();
+
+
+    const friendIds = friends.map((f) => f.user_id);
 
     const threadIds = friends
         .map((friend) => friend.dm_thread_id)
         .filter((id): id is string => Boolean(id));
 
     const { onNewMessage } = useDMSubscription(threadIds);
-    useAutoOnlineStatus();
+
+    const { onStatusUpdate } = useStatusSubscription(isFetched ? friendIds : []);
+
+    onStatusUpdate((statusUpdate) => {
+        queryClient.setQueryData(["friends"], (oldFriends: any) => {
+            return oldFriends.map((friend: any) => {
+                if (friend.user_id === statusUpdate.userId) {
+                    return {
+                        ...friend,
+                        status: statusUpdate.status,
+                    };
+                }
+                return friend;
+            });
+        });
+    })
+
 
     useEffect(() => {
         const unsubscribe = onNewMessage((message: any) => {
