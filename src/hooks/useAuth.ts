@@ -8,6 +8,7 @@ import {
 } from "../api/auth";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { useSocketEmit } from "./useSocket";
 
 export const useLogin = () => {
     const navigate = useNavigate();
@@ -34,17 +35,19 @@ export const useLogin = () => {
 export const useLogout = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const emit = useSocketEmit();
 
     return useMutation({
-        mutationFn: () => logout(),
+        mutationFn: () => {
+            emit("user:logout");
+            return logout();
+        },
         onSuccess: (result) => {
-            // Clear cache and navigate regardless of result
             queryClient.clear();
             navigate("/login");
             toast.success(result.message || "Logout successful");
         },
         onError: (error: any) => {
-            // Even on error, clear cache and navigate
             queryClient.clear();
             navigate("/login");
             toast.error(error.response?.data?.message || "Logout failed");
