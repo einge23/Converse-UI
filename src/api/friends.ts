@@ -10,7 +10,7 @@ export type PublicUser = {
     email: string;
     display_name: string;
     avatar_url: string | null;
-    status: "online" | "offline" | "away" | "do_not_disturb";
+    status?: "online" | "offline" | "away" | "do_not_disturb";
     last_active_at: string | null;
     created_at: string;
     updated_at: string;

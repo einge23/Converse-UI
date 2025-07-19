@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Search, Users, MessageCircle, Check, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,16 +35,20 @@ export function FriendsList({}: FriendsListProps) {
     const createFriendRequest = useCreateFriendRequest();
     const updateFriendStatus = useUpdateFriendStatus();
 
+    const friendIds = friends.map((f) => f.user_id);
     const { onStatusUpdate } = useStatusSubscription(
-        friends.map((f) => f.user_id)
+        friendIds,
+        friendIds.length > 0
     );
 
-    onStatusUpdate((payload) => {
-        updateFriendStatus.mutate({
-            userId: payload.userId,
-            status: payload.status,
+    useEffect(() => {
+        return onStatusUpdate((payload) => {
+            updateFriendStatus.mutate({
+                userId: payload.userId,
+                status: payload.status,
+            });
         });
-    });
+    }, [onStatusUpdate, updateFriendStatus]);
 
     const pendingFriendRequests = friendRequests.filter(
         (request: FriendRequestWithUser) =>
@@ -103,7 +107,7 @@ export function FriendsList({}: FriendsListProps) {
         ? filteredPendingRequests.length
         : filteredFriends.length;
 
-    const getStatusColor = (status: string) => {
+    const getStatusColor = (status?: string) => {
         switch (status) {
             case "online":
                 return "bg-emerald-500";
@@ -302,7 +306,8 @@ export function FriendsList({}: FriendsListProps) {
                                                                 getStatusColor(
                                                                     request
                                                                         .requester
-                                                                        .status
+                                                                        .status ||
+                                                                        "offline"
                                                                 )
                                                             )}
                                                         />
@@ -404,7 +409,8 @@ export function FriendsList({}: FriendsListProps) {
                                                             className={cn(
                                                                 "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
                                                                 getStatusColor(
-                                                                    friend.status
+                                                                    friend.status ||
+                                                                        "offline"
                                                                 )
                                                             )}
                                                         />

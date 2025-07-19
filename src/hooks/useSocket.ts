@@ -73,14 +73,17 @@ export function useSetStatus() {
  *   });
  * }, [onStatusUpdate]);
  */
-export function useStatusSubscription(friendIds: string[]) {
+export function useStatusSubscription(
+    friendIds: string[],
+    enabled: boolean = true
+) {
     const { emit, subscribe } = useSocket();
 
     useEffect(() => {
-        if (friendIds && friendIds.length > 0) {
+        if (enabled && friendIds && friendIds.length > 0) {
             emit("status:subscribe", friendIds);
         }
-    }, [emit, friendIds]);
+    }, [emit, friendIds, enabled]);
 
     const onStatusUpdate = useCallback(
         (handler: (payload: StatusUpdatePayload) => void) => {

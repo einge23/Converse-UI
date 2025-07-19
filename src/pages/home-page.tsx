@@ -1,3 +1,4 @@
+import type { PublicUser } from "@/api/friends";
 import { ChannelSidebar } from "@/components/home/channel-sidebar";
 import { ChatInterface } from "@/components/home/chat-interface";
 import { FriendsList } from "@/components/home/friends-list";
@@ -13,8 +14,7 @@ export default function HomePage() {
     const { serverId, channelId, dmThreadId } = useParams();
     const navigate = useNavigate();
     const { data: friends = [], isFetched } = useFriends();
-     const queryClient = useQueryClient();
-
+    const queryClient = useQueryClient();
 
     const friendIds = friends.map((f) => f.user_id);
 
@@ -24,22 +24,26 @@ export default function HomePage() {
 
     const { onNewMessage } = useDMSubscription(threadIds);
 
-    const { onStatusUpdate } = useStatusSubscription(isFetched ? friendIds : []);
+    const { onStatusUpdate } = useStatusSubscription(
+        friendIds,
+        isFetched && friendIds.length > 0
+    );
 
-    onStatusUpdate((statusUpdate) => {
-        queryClient.setQueryData(["friends"], (oldFriends: any) => {
-            return oldFriends.map((friend: any) => {
-                if (friend.user_id === statusUpdate.userId) {
-                    return {
-                        ...friend,
-                        status: statusUpdate.status,
-                    };
+    useEffect(() => {
+        return onStatusUpdate((statusUpdate) => {
+            queryClient.setQueryData(
+                ["friends"],
+                (oldFriends: PublicUser[]) => {
+                    return oldFriends?.map((friend) => {
+                        if (friend.user_id === statusUpdate.userId) {
+                            return { ...friend, status: statusUpdate.status };
+                        }
+                        return friend;
+                    });
                 }
-                return friend;
-            });
+            );
         });
-    })
-
+    }, [onStatusUpdate, queryClient]);
 
     useEffect(() => {
         const unsubscribe = onNewMessage((message: any) => {
